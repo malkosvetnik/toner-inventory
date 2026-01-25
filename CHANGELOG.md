@@ -1,155 +1,142 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to the Toner Inventory System will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-01-17
+## [2.0.0] - 2026-01-26
 
 ### Added
-- 📦 **Toner Management System**
-  - Track stock levels with automatic reordering alerts
-  - Inline editing for quick stock updates
-  - Minimum quantity thresholds
-  - Driver link storage
+- **Real-time Stock Counters**
+  - Live counter for total toner quantity in Toners tab
+  - Live counter for total printer quantity in Printers tab
+  - Automatic updates on any change (add/delete/edit)
+  - SQL-based calculations for accuracy
 
-- 🖨️ **Printer Inventory**
-  - Quantity tracking (Total, Assigned, Available)
-  - Smart assignment validation
-  - Status management (Active, In Service, For Disposal)
-  - Color-coded availability indicators
-  - Toner compatibility tracking
+- **Print & Export for All Tabs**
+  - Print preview (HTML) for Toners tab with browser print button
+  - Print preview (HTML) for Printers tab with browser print button
+  - Excel export for Toners tab with professional formatting
+  - Excel export for Printers tab with professional formatting
+  - Dual statistics in reports: different models + total pieces
 
-- 👥 **Employee Management**
-  - Assign printers to employees
-  - Automatic validation (prevents over-assignment)
-  - Track assignments per employee
+- **Search Functionality in Dialogs**
+  - Real-time search field in "Edit Printer" dialog for filtering toners
+  - Real-time search field in "Edit Employee" dialog for filtering printers
+  - Preserves checkbox states during filtering
 
-- 📊 **Statistics & Reports**
-  - Monthly consumption reports
-  - Yearly consumption trends
-  - Top toners by stock/consumption
-  - Excel and HTML export
+- **Column Width Persistence**
+  - All column widths are automatically saved on application close
+  - Column widths restored on next application start
+  - Powered by QSettings (Windows Registry / Linux config file)
+  - Works across all tables: Toners, Printers, Employees, Overview, History
 
-- 📜 **Order History**
-  - Track all toner orders with timestamps
-  - Filter by year and month
-  - Automatic cleanup (2-year retention)
-  - Manual order entry
+- **Enhanced Overview Tab**
+  - Now displays ALL records (including unlinked items)
+  - Red background indicators for missing/NULL relationships
+  - Clear visibility of incomplete connections
+  - Four separate SQL queries for comprehensive data display
 
-- 🛒 **Smart Ordering System**
-  - Automatic detection of toners below minimum
-  - Order list dialog with multiple export options
-  - Preview and print functionality
-  - Add to history directly from order list
+### Fixed
+- **Status Combobox Bug** - Can now change printer status unlimited times
+  - Root cause: Signal not disconnected before table reload
+  - Root cause: Wrong data (translated text) saved to database
+  - Solution: Complete refactor using `activated` signal instead of `currentTextChanged`
+  - Solution: Reverse mapping to convert display text back to Serbian before DB save
+  - Added explicit widget cleanup to prevent duplicate comboboxes
 
-- 💾 **Backup & Restore**
-  - Automatic scheduled backups
-  - Manual backup creation
-  - Safe restore with pre-restore backup
-  - Configurable backup schedule
+- **Search Highlighting Inconsistency** - Red text in Employees tab
+  - Changed to white text on green background (consistent with other tabs)
+  - Refactored entire search logic for Employees table
 
-- 🔍 **Search & Filter**
-  - Real-time search across all tabs
-  - Highlighting of matching results
-  - Tab indicators for search matches
-  - Status-based filtering
+- **Edit Toner Dialog Crash** - TypeError when clicking "Izmeni toner"
+  - Root cause: Database NULL values in minimalna_kolicina or trenutno_stanje
+  - Solution: Added None checks with default values in TonerDialog.__init__()
 
-- 🌐 **Dual Language Support**
-  - Complete Serbian interface
-  - Complete English interface
-  - Instant language switching
-  - All dialogs and messages translated
+- **Zero Display Bug** - Empty field instead of "0" in order lists
+  - Changed condition from `if value` to `if value is not None`
+  - Now correctly displays "0" when stock is zero
 
-- 🎨 **User Interface**
-  - Clean, professional design
-  - Custom application icon
-  - Tab-based navigation
-  - Inline editing
-  - Color-coded indicators
-  - Responsive layout
+- **Overview Tab Missing Records** - Only showed fully connected records
+  - Completely rewrote load_pregled() with 4 separate queries
+  - Query 1: Fully connected (employee + printer + toner)
+  - Query 2: Employees WITHOUT printers
+  - Query 3: Printers WITHOUT employees
+  - Query 4: Toners WITHOUT printers
 
-### Features Detail
+### Changed
+- **Table Interaction**
+  - Changed all tables from Stretch mode to Interactive mode
+  - Users can now resize columns by dragging (like Excel)
+  - Last column auto-stretches to fill available space
 
-#### Smart Quantity Management
-- Prevent reducing printer quantity below assigned count
-- Optional unassignment dialog when reducing quantity
-- Shows which employees are affected
-- Flexible: can choose to unassign or cancel
+- **Export Report Format**
+  - Reports now show both "Different models" count and "Total pieces" count
+  - Example: "Različitih tonera: 17 | Ukupno komada: 143"
+  - Applies to both Print preview and Excel export
 
-#### Cascade Delete Protection
-- Warns before deleting printers assigned to employees
-- Shows list of affected employees
-- Warns before deleting toners linked to printers
-- Shows list of affected printers
-- Automatic cleanup of all relationships
+### Technical Improvements
+- Added QSettings integration for persistent UI state
+- Improved SQL queries for real-time calculations
+- Better error handling for NULL database values
+- Consistent signal/slot handling across all tables
+- Enhanced widget lifecycle management
 
-#### Data Integrity
-- SQLite database with proper foreign keys
-- Automatic database migration for updates
-- Transaction-based operations
-- Validation at every input point
+## [1.0.0] - 2025-XX-XX
 
-### Technical
+### Added
+- Initial release
+- Basic toner inventory management
+- Printer tracking system
+- Employee printer assignments
+- Order list generation
+- Consumption history tracking
+- Backup and restore functionality
+- Dual language support (Serbian/English)
+- Search across all tables
+- Excel export for order lists
+- Statistics tab with history
 
-#### Stack
-- Python 3.8+
-- PyQt5 for GUI
-- SQLite for database
-- openpyxl for Excel export
-- PyInstaller for EXE packaging
-
-#### Database Schema
-- `toneri` - Toner records
-- `stampaci` - Printer records
-- `radnici` - Employee records
-- `radnik_stampaci` - Employee-Printer assignments (M2M)
-- `stampac_toneri` - Printer-Toner compatibility (M2M)
-- `istorija_narudzbi` - Order history
-- `backup_settings` - Backup configuration
-
-### Build & Distribution
-- Automated EXE build script
-- PyInstaller configuration included
-- Standalone executable (no Python required)
-- ~50-80 MB final EXE size
+### Core Features
+- SQLite database backend
+- PyQt5 GUI framework
+- Multi-tab interface
+- Relationship management (toners ↔ printers ↔ employees)
+- Color-coded stock levels
+- Driver link management
+- Configurable settings
 
 ---
 
-## [Unreleased]
+## Upgrade Notes
 
-### Planned Features
-- Dark mode theme
-- Barcode/QR code scanning
-- Cost tracking per toner
-- Supplier management
-- Email notifications for low stock
-- Web API for integrations
-- Multi-user support with roles
-- Cloud backup integration
+### Upgrading from v1.0 to v2.0
 
----
+Your existing database will work with v2.0 without modifications. However, we recommend:
 
-## Release Notes
+1. **Create a backup** before upgrading (use built-in Backup feature)
+2. **Test the new version** with your existing data
+3. **Review the new features** - especially Overview tab and real-time counters
 
-### Version 1.0.0
-First stable release! This version includes all core functionality for managing toner inventory, printer assignments, and generating reports. The application is production-ready and has been thoroughly tested.
+No database migrations required - fully backwards compatible!
 
-**Highlights:**
-- ✅ Complete dual-language support (SR/EN)
-- ✅ Smart validation prevents data inconsistencies
-- ✅ Cascade delete protection
-- ✅ Automatic backup system
-- ✅ Professional UI with custom icon
-- ✅ Export to Excel and HTML
-- ✅ Comprehensive documentation
-
-**Known Limitations:**
-- Single-user only (no login system)
-- Desktop-only (no web/mobile version)
-- No email notifications yet
+### Breaking Changes
+None - v2.0 is fully compatible with v1.0 databases.
 
 ---
 
-[1.0.0]: https://github.com/malkosvetnik/toner-inventory/releases/tag/v1.0.0
+## Future Roadmap (v3.0+)
+
+Planned features for future releases:
+- 📊 Charts and statistics dashboard
+- 📧 Email notifications for low stock
+- 🔔 Desktop notifications
+- 📱 QR code generation for quick scanning
+- 🌐 Optional web version
+- 📅 Printer service calendar
+- 📈 Advanced analytics and reporting
+
+---
+
+For full documentation, visit the [Wiki](https://github.com/malkosvetnik/toner-inventory/wiki)

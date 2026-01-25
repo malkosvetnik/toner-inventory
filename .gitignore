@@ -1,8 +1,12 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -19,19 +23,22 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
 # PyInstaller
+*.manifest
 *.spec
 
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.backup
+backups/
+
+# Config files (user-specific)
+app_config.json
 
 # IDE
 .vscode/
@@ -45,15 +52,29 @@ venv.bak/
 Thumbs.db
 desktop.ini
 
-# Application specific
-*.db
-!sample.db
-backups/
-*.log
+# Temporary files
 temp/
+tmp/
 *.tmp
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
+# Log files
+*.log
+
+# Excel temp files
+~$*.xlsx
+
+# PyQt UI compiler files
+*_ui.py
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Test files
+test_*.py
+tests/
+
+# Documentation builds
+docs/_build/
+site/

@@ -13,8 +13,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QPushButton, QLineEdit, QLabel, QComboBox, QSpinBox,
                              QMessageBox, QDialog, QFormLayout, QTextEdit, QHeaderView,
                              QCheckBox, QFileDialog, QMenuBar, QAction, QMenu)
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor
+from PyQt5.QtCore import Qt, QUrl, QTimer, QSettings
+from PyQt5.QtGui import QColor, QDesktopServices
 
 class Database:
     def __init__(self, db_name="toneri.db"):
@@ -49,11 +49,22 @@ class Database:
                 serijski_broj TEXT UNIQUE,
                 status TEXT DEFAULT 'Aktivan',
                 napomena TEXT,
-                kolicina INTEGER DEFAULT 1
+                kolicina INTEGER DEFAULT 1,
+                driver_link TEXT
             )
         ''')
         
         # Add kolicina column if it doesn't exist (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE stampaci ADD COLUMN kolicina INTEGER DEFAULT 1")
+        except:
+            pass
+        
+        # Add driver_link column if it doesn't exist (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE stampaci ADD COLUMN driver_link TEXT")
+        except:
+            pass
         try:
             cursor.execute("ALTER TABLE stampaci ADD COLUMN kolicina INTEGER DEFAULT 1")
         except:
@@ -155,19 +166,15 @@ class TonerDialog(QDialog):
         self.stanje_input = QSpinBox()
         self.stanje_input.setMinimum(0)
         self.stanje_input.setMaximum(9999)
-        self.driver_input = QTextEdit()
-        self.driver_input.setMaximumHeight(60)
         
         if self.toner_data:
-            self.model_input.setText(self.toner_data[1])
-            self.min_kol_input.setValue(self.toner_data[3])
-            self.stanje_input.setValue(self.toner_data[4])
-            self.driver_input.setText(self.toner_data[5] or "")
+            self.model_input.setText(self.toner_data[1] if self.toner_data[1] else "")
+            self.min_kol_input.setValue(self.toner_data[2] if self.toner_data[2] is not None else 2)
+            self.stanje_input.setValue(self.toner_data[3] if self.toner_data[3] is not None else 0)
         
         layout.addRow(T.get("label_toner_model", self.lang), self.model_input)
         layout.addRow(T.get("label_min_qty", self.lang), self.min_kol_input)
         layout.addRow(T.get("label_current_stock", self.lang), self.stanje_input)
-        layout.addRow(T.get("label_driver_link", self.lang), self.driver_input)
         
         # Dugmad
         btn_layout = QHBoxLayout()
@@ -185,8 +192,7 @@ class TonerDialog(QDialog):
         return {
             'model': self.model_input.text().strip(),
             'minimalna_kolicina': self.min_kol_input.value(),
-            'trenutno_stanje': self.stanje_input.value(),
-            'driver_link': self.driver_input.toPlainText().strip()
+            'trenutno_stanje': self.stanje_input.value()
         }
 
 
@@ -215,6 +221,8 @@ class StampacDialog(QDialog):
         self.status_combo.addItems([T.get("status_active", self.lang), T.get("status_in_service", self.lang), T.get("status_for_disposal", self.lang)])
         self.napomena_input = QTextEdit()
         self.napomena_input.setMaximumHeight(60)
+        self.driver_input = QTextEdit()
+        self.driver_input.setMaximumHeight(60)
         
         if self.stampac_data:
             self.model_input.setText(self.stampac_data[1])
@@ -223,11 +231,15 @@ class StampacDialog(QDialog):
             # Load kolicina if exists (index 5)
             if len(self.stampac_data) > 5 and self.stampac_data[5]:
                 self.kolicina_input.setValue(self.stampac_data[5])
+            # Load driver_link if exists (index 6)
+            if len(self.stampac_data) > 6 and self.stampac_data[6]:
+                self.driver_input.setText(self.stampac_data[6] or "")
         
         form_layout.addRow(T.get("label_printer_model", self.lang), self.model_input)
         form_layout.addRow(T.get("label_quantity", self.lang), self.kolicina_input)
         form_layout.addRow(T.get("label_status", self.lang), self.status_combo)
         form_layout.addRow(T.get("label_note", self.lang), self.napomena_input)
+        form_layout.addRow(T.get("label_driver_link", self.lang), self.driver_input)
         
         layout.addLayout(form_layout)
         
@@ -235,6 +247,12 @@ class StampacDialog(QDialog):
         toneri_label = QLabel(T.get("label_toners_used", self.lang))
         toneri_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
         layout.addWidget(toneri_label)
+        
+        # SEARCH za tonere
+        self.search_toner_input = QLineEdit()
+        self.search_toner_input.setPlaceholderText("🔍 " + T.get("placeholder_search", self.lang) + "...")
+        self.search_toner_input.textChanged.connect(self.filter_toneri)
+        layout.addWidget(self.search_toner_input)
         
         self.toneri_table = QTableWidget()
         self.toneri_table.setColumnCount(2)
@@ -247,7 +265,7 @@ class StampacDialog(QDialog):
         conn = self.db.get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id, model FROM toneri ORDER BY model")
-        all_toneri = cursor.fetchall()
+        self.all_toneri = cursor.fetchall()  # Sačuvaj kao class variable
         
         # Ako editujemo štampač, učitaj njegove tonere
         selected_toneri = []
@@ -259,19 +277,8 @@ class StampacDialog(QDialog):
         
         conn.close()
         
-        self.toneri_table.setRowCount(len(all_toneri))
-        self.toner_checkboxes = {}
-        
-        for i, (toner_id, toner_model) in enumerate(all_toneri):
-            # Checkbox
-            checkbox = QTableWidgetItem()
-            checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            checkbox.setCheckState(Qt.Checked if toner_id in selected_toneri else Qt.Unchecked)
-            self.toneri_table.setItem(i, 0, checkbox)
-            
-            # Model
-            self.toneri_table.setItem(i, 1, QTableWidgetItem(toner_model))
-            self.toner_checkboxes[toner_id] = checkbox
+        self.selected_toneri_ids = selected_toneri  # Sačuvaj za filter
+        self.load_toneri_table()  # Inicijalno punjenje tabele
         
         layout.addWidget(self.toneri_table)
         
@@ -292,21 +299,44 @@ class StampacDialog(QDialog):
             'model': self.model_input.text().strip(),
             'kolicina': self.kolicina_input.value(),
             'status': self.status_combo.currentText(),
-            'napomena': self.napomena_input.toPlainText().strip()
+            'napomena': self.napomena_input.toPlainText().strip(),
+            'driver_link': self.driver_input.toPlainText().strip()
         }
+    
+    def load_toneri_table(self):
+        """Učitava tabelu tonera"""
+        self.toneri_table.setRowCount(len(self.all_toneri))
+        self.toner_checkboxes = {}
+        
+        for i, (toner_id, toner_model) in enumerate(self.all_toneri):
+            # Checkbox
+            checkbox = QTableWidgetItem()
+            checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            checkbox.setCheckState(Qt.Checked if toner_id in self.selected_toneri_ids else Qt.Unchecked)
+            self.toneri_table.setItem(i, 0, checkbox)
+            
+            # Model
+            self.toneri_table.setItem(i, 1, QTableWidgetItem(toner_model))
+            self.toner_checkboxes[toner_id] = checkbox
+    
+    def filter_toneri(self):
+        """Filtrira tonere prema search tekstu"""
+        search_text = self.search_toner_input.text().lower()
+        
+        for i in range(self.toneri_table.rowCount()):
+            model_item = self.toneri_table.item(i, 1)
+            if model_item:
+                # Prikaži red ako search tekst odgovara ili je search prazan
+                matches = search_text in model_item.text().lower() if search_text else True
+                self.toneri_table.setRowHidden(i, not matches)
     
     def get_selected_toneri(self):
         """Vraća listu ID-eva označenih tonera"""
         selected = []
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM toneri ORDER BY model")
-        all_toneri = cursor.fetchall()
-        conn.close()
         
-        for i, (toner_id,) in enumerate(all_toneri):
+        for i, (toner_id, _) in enumerate(self.all_toneri):
             checkbox = self.toneri_table.item(i, 0)
-            if checkbox.checkState() == Qt.Checked:
+            if checkbox and checkbox.checkState() == Qt.Checked:
                 selected.append(toner_id)
         
         return selected
@@ -345,6 +375,12 @@ class RadnikDialog(QDialog):
         stampaci_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
         layout.addWidget(stampaci_label)
         
+        # SEARCH za štampače
+        self.search_stampac_input = QLineEdit()
+        self.search_stampac_input.setPlaceholderText("🔍 " + T.get("placeholder_search", self.lang) + "...")
+        self.search_stampac_input.textChanged.connect(self.filter_stampaci)
+        layout.addWidget(self.search_stampac_input)
+        
         self.stampaci_table = QTableWidget()
         self.stampaci_table.setColumnCount(3)
         self.stampaci_table.setHorizontalHeaderLabels(["✓", T.get("col_printer_model", self.lang), T.get("col_status", self.lang)])
@@ -357,7 +393,7 @@ class RadnikDialog(QDialog):
         conn = self.db.get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id, model, status FROM stampaci ORDER BY model")
-        all_stampaci = cursor.fetchall()
+        self.all_stampaci = cursor.fetchall()  # Sačuvaj kao class variable
         
         # Ako editujemo radnika, učitaj njegove štampače
         selected_stampaci = []
@@ -369,14 +405,39 @@ class RadnikDialog(QDialog):
         
         conn.close()
         
-        self.stampaci_table.setRowCount(len(all_stampaci))
+        self.selected_stampaci_ids = selected_stampaci  # Sačuvaj za filter
+        self.load_stampaci_table()  # Inicijalno punjenje tabele
+        
+        layout.addWidget(self.stampaci_table)
+        
+        # Dugmad
+        btn_layout = QHBoxLayout()
+        save_btn = QPushButton(T.get("btn_save", self.lang))
+        cancel_btn = QPushButton(T.get("btn_cancel", self.lang))
+        save_btn.clicked.connect(self.accept)
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(btn_layout)
+        self.setLayout(layout)
+    
+    def get_data(self):
+        return {
+            'ime': self.ime_input.text().strip(),
+            'prezime': self.prezime_input.text().strip()
+        }
+    
+    def load_stampaci_table(self):
+        """Učitava tabelu štampača"""
+        self.stampaci_table.setRowCount(len(self.all_stampaci))
         self.stampac_checkboxes = {}
         
-        for i, (stampac_id, stampac_model, status) in enumerate(all_stampaci):
+        for i, (stampac_id, stampac_model, status) in enumerate(self.all_stampaci):
             # Checkbox
             checkbox = QTableWidgetItem()
             checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            checkbox.setCheckState(Qt.Checked if stampac_id in selected_stampaci else Qt.Unchecked)
+            checkbox.setCheckState(Qt.Checked if stampac_id in self.selected_stampaci_ids else Qt.Unchecked)
             self.stampaci_table.setItem(i, 0, checkbox)
             
             # Model
@@ -399,39 +460,25 @@ class RadnikDialog(QDialog):
             self.stampaci_table.setItem(i, 2, status_item)
             
             self.stampac_checkboxes[stampac_id] = checkbox
-        
-        layout.addWidget(self.stampaci_table)
-        
-        # Dugmad
-        btn_layout = QHBoxLayout()
-        save_btn = QPushButton(T.get("btn_save", self.lang))
-        cancel_btn = QPushButton(T.get("btn_cancel", self.lang))
-        save_btn.clicked.connect(self.accept)
-        cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(save_btn)
-        btn_layout.addWidget(cancel_btn)
-        
-        layout.addLayout(btn_layout)
-        self.setLayout(layout)
     
-    def get_data(self):
-        return {
-            'ime': self.ime_input.text().strip(),
-            'prezime': self.prezime_input.text().strip()
-        }
+    def filter_stampaci(self):
+        """Filtrira štampače prema search tekstu"""
+        search_text = self.search_stampac_input.text().lower()
+        
+        for i in range(self.stampaci_table.rowCount()):
+            model_item = self.stampaci_table.item(i, 1)
+            if model_item:
+                # Prikaži red ako search tekst odgovara ili je search prazan
+                matches = search_text in model_item.text().lower() if search_text else True
+                self.stampaci_table.setRowHidden(i, not matches)
     
     def get_selected_stampaci(self):
         """Vraća listu ID-eva označenih štampača"""
         selected = []
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM stampaci ORDER BY model")
-        all_stampaci = cursor.fetchall()
-        conn.close()
         
-        for i, (stampac_id,) in enumerate(all_stampaci):
+        for i, (stampac_id, _, _) in enumerate(self.all_stampaci):
             checkbox = self.stampaci_table.item(i, 0)
-            if checkbox.checkState() == Qt.Checked:
+            if checkbox and checkbox.checkState() == Qt.Checked:
                 selected.append(stampac_id)
         
         return selected
@@ -440,6 +487,7 @@ class RadnikDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.settings = QSettings('TonerInventory', 'TonerApp')  # Pamćenje postavki
         self.lang = self.load_language_preference()  # Load saved language
         self.search_active = False  # Flag to prevent load from overwriting search highlighting
         self.db = Database()
@@ -448,7 +496,8 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1200, 700)
         self.init_ui()
         self.load_all_data()
-        self.cleanup_old_history()  # Čisti istoriju stariju od 2 godine
+        self.restore_column_widths()  # Učitaj sačuvane širine kolona
+        self.cleanup_old_history()  # Čisti istoriju starije od 2 godine
         self.check_auto_backup()  # Proveri da li treba automatski backup
     
     def load_language_preference(self):
@@ -546,6 +595,25 @@ class MainWindow(QMainWindow):
         self.edit_toner_btn = QPushButton(T.get("btn_edit_toner", self.lang))
         self.delete_toner_btn = QPushButton(T.get("btn_delete_toner", self.lang))
         self.potrosnja_btn = QPushButton(T.get("btn_record_consumption", self.lang))
+        
+        # Label za ukupan zbir tonera
+        self.ukupno_tonera_label = QLabel()
+        self.ukupno_tonera_label.setStyleSheet("""
+            QLabel {
+                background-color: #34495E;
+                color: white;
+                padding: 8px 15px;
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 11pt;
+            }
+        """)
+        self.update_ukupno_tonera()  # Inicijalno postavi vrednost
+        
+        self.excel_toneri_btn = QPushButton("📊 " + T.get("btn_excel_export", self.lang))
+        self.excel_toneri_btn.setStyleSheet("background-color: #FF9800; color: white; font-weight: bold;")
+        self.stampaj_tonere_btn = QPushButton("🖨️ " + T.get("btn_preview_print", self.lang))
+        self.stampaj_tonere_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold;")
         self.narudzba_btn = QPushButton(T.get("btn_order_list", self.lang))
         self.narudzba_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
         
@@ -553,22 +621,27 @@ class MainWindow(QMainWindow):
         self.edit_toner_btn.clicked.connect(self.edit_toner)
         self.delete_toner_btn.clicked.connect(self.delete_toner)
         self.potrosnja_btn.clicked.connect(self.evidentira_potrosnju)
+        self.excel_toneri_btn.clicked.connect(self.export_tonere_excel)
+        self.stampaj_tonere_btn.clicked.connect(self.stampaj_tonere)
         self.narudzba_btn.clicked.connect(self.prikazi_narudzbu)
         
         toneri_btn_layout.addWidget(self.add_toner_btn)
         toneri_btn_layout.addWidget(self.edit_toner_btn)
         toneri_btn_layout.addWidget(self.delete_toner_btn)
         toneri_btn_layout.addWidget(self.potrosnja_btn)
+        toneri_btn_layout.addWidget(self.ukupno_tonera_label)  # Dodaj label
         toneri_btn_layout.addStretch()
+        toneri_btn_layout.addWidget(self.excel_toneri_btn)
+        toneri_btn_layout.addWidget(self.stampaj_tonere_btn)
         toneri_btn_layout.addWidget(self.narudzba_btn)
         
         self.toneri_table = QTableWidget()
-        self.toneri_table.setColumnCount(5)
-        self.toneri_table.setHorizontalHeaderLabels([T.get("col_id", self.lang), T.get("col_model", self.lang), T.get("col_min_qty", self.lang), T.get("col_stock", self.lang), T.get("col_driver_link", self.lang)])
-        self.toneri_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.toneri_table.setColumnCount(4)
+        self.toneri_table.setHorizontalHeaderLabels([T.get("col_id", self.lang), T.get("col_model", self.lang), T.get("col_min_qty", self.lang), T.get("col_stock", self.lang)])
+        self.toneri_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.toneri_table.horizontalHeader().setStretchLastSection(True)
         self.toneri_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.toneri_table.itemChanged.connect(self.on_toner_stanje_changed)
-        self.toneri_table.cellClicked.connect(self.on_toner_cell_clicked)
         
         toneri_layout.addLayout(toneri_btn_layout)
         toneri_layout.addWidget(self.toneri_table)
@@ -586,19 +659,43 @@ class MainWindow(QMainWindow):
         self.status_filter.addItems([T.get("status_all", self.lang), T.get("status_active", self.lang), T.get("status_in_service", self.lang), T.get("status_for_disposal", self.lang)])
         self.status_filter.currentTextChanged.connect(self.load_stampaci)
         
+        # Label za ukupan broj štampača
+        self.ukupno_stampaca_label = QLabel()
+        self.ukupno_stampaca_label.setStyleSheet("""
+            QLabel {
+                background-color: #34495E;
+                color: white;
+                padding: 8px 15px;
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 11pt;
+            }
+        """)
+        self.update_ukupno_stampaca()  # Inicijalno postavi vrednost
+        
+        self.excel_stampaci_btn = QPushButton("📊 " + T.get("btn_excel_export", self.lang))
+        self.excel_stampaci_btn.setStyleSheet("background-color: #FF9800; color: white; font-weight: bold;")
+        self.stampaj_stampace_btn = QPushButton("🖨️ " + T.get("btn_preview_print", self.lang))
+        self.stampaj_stampace_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold;")
+        
         self.add_stampac_btn.clicked.connect(self.add_stampac)
         self.edit_stampac_btn.clicked.connect(self.edit_stampac)
         self.delete_stampac_btn.clicked.connect(self.delete_stampac)
+        self.excel_stampaci_btn.clicked.connect(self.export_stampace_excel)
+        self.stampaj_stampace_btn.clicked.connect(self.stampaj_stampace)
         
         stampaci_btn_layout.addWidget(self.add_stampac_btn)
         stampaci_btn_layout.addWidget(self.edit_stampac_btn)
         stampaci_btn_layout.addWidget(self.delete_stampac_btn)
         stampaci_btn_layout.addWidget(QLabel(T.get("filter_label", self.lang)))
         stampaci_btn_layout.addWidget(self.status_filter)
+        stampaci_btn_layout.addWidget(self.ukupno_stampaca_label)  # Dodaj label
         stampaci_btn_layout.addStretch()
+        stampaci_btn_layout.addWidget(self.excel_stampaci_btn)
+        stampaci_btn_layout.addWidget(self.stampaj_stampace_btn)
         
         self.stampaci_table = QTableWidget()
-        self.stampaci_table.setColumnCount(7)
+        self.stampaci_table.setColumnCount(8)
         self.stampaci_table.setHorizontalHeaderLabels([
             T.get("col_id", self.lang), 
             T.get("col_model", self.lang), 
@@ -606,9 +703,11 @@ class MainWindow(QMainWindow):
             T.get("col_assigned", self.lang),
             T.get("col_available", self.lang),
             T.get("col_status", self.lang), 
-            T.get("col_notes", self.lang)
+            T.get("col_notes", self.lang),
+            T.get("col_driver_link", self.lang)
         ])
-        self.stampaci_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.stampaci_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.stampaci_table.horizontalHeader().setStretchLastSection(True)
         self.stampaci_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.stampaci_table.cellClicked.connect(self.on_stampac_cell_clicked)
         self.stampaci_table.itemChanged.connect(self.on_stampac_item_changed)
@@ -637,7 +736,8 @@ class MainWindow(QMainWindow):
         self.radnici_table = QTableWidget()
         self.radnici_table.setColumnCount(3)
         self.radnici_table.setHorizontalHeaderLabels([T.get("col_id", self.lang), T.get("col_first_name", self.lang), T.get("col_last_name", self.lang)])
-        self.radnici_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.radnici_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.radnici_table.horizontalHeader().setStretchLastSection(True)
         self.radnici_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.radnici_table.itemChanged.connect(self.on_radnik_item_changed)
         
@@ -668,7 +768,8 @@ class MainWindow(QMainWindow):
         self.pregled_table = QTableWidget()
         self.pregled_table.setColumnCount(4)
         self.pregled_table.setHorizontalHeaderLabels([T.get("col_employee", self.lang), T.get("col_printer", self.lang), T.get("col_status", self.lang), T.get("col_toners", self.lang)])
-        self.pregled_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.pregled_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.pregled_table.horizontalHeader().setStretchLastSection(True)
         self.pregled_table.setSelectionBehavior(QTableWidget.SelectRows)
         
         pregled_layout.addWidget(self.pregled_table)
@@ -795,7 +896,8 @@ class MainWindow(QMainWindow):
         self.istorija_table = QTableWidget()
         self.istorija_table.setColumnCount(5)
         self.istorija_table.setHorizontalHeaderLabels([T.get("col_id", self.lang), T.get("col_date", self.lang), T.get("col_toner", self.lang), T.get("col_quantity", self.lang), T.get("col_notes", self.lang)])
-        self.istorija_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.istorija_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.istorija_table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.istorija_table)
         
         return tab
@@ -942,7 +1044,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, T.get('error', self.lang), f"{T.get('error', self.lang)}:\n{str(e)}")
     
     def load_istorija(self):
-        """Učitava istoriju narudžbina sa filterom po periodu"""
+        """Učitava istorija narudžbina sa filterom po periodu"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
@@ -1242,20 +1344,129 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, T.get("error", self.lang), f"Greška prilikom restore-a:\n{str(e)}")
 
     def load_all_data(self):
-        self.load_toneri()
-        self.load_stampaci()
-        self.load_radnici()
-        self.load_pregled()
-        self.load_istorija()
-        # Re-apply search if active
-        if hasattr(self, 'search_input') and self.search_input.text():
-            self.search_all()
+        # Privremeno blokiraj search signal da ne bi došlo do rekurzije
+        try:
+            self.search_input.blockSignals(True)
+            self.load_toneri()
+            self.load_stampaci()
+            self.load_radnici()
+            self.load_pregled()
+            self.load_istorija()
+            # Re-apply search if active
+            if hasattr(self, 'search_input') and self.search_input.text():
+                self.search_all()
+        finally:
+            self.search_input.blockSignals(False)
+    
+    def save_column_widths(self):
+        """Čuva širine kolona svih tabela"""
+        try:
+            # Toneri
+            for i in range(self.toneri_table.columnCount()):
+                self.settings.setValue(f'toneri_col_{i}_width', self.toneri_table.columnWidth(i))
+            
+            # Štampači
+            for i in range(self.stampaci_table.columnCount()):
+                self.settings.setValue(f'stampaci_col_{i}_width', self.stampaci_table.columnWidth(i))
+            
+            # Radnici
+            for i in range(self.radnici_table.columnCount()):
+                self.settings.setValue(f'radnici_col_{i}_width', self.radnici_table.columnWidth(i))
+            
+            # Pregled
+            for i in range(self.pregled_table.columnCount()):
+                self.settings.setValue(f'pregled_col_{i}_width', self.pregled_table.columnWidth(i))
+            
+            # Istorija
+            if hasattr(self, 'istorija_table'):
+                for i in range(self.istorija_table.columnCount()):
+                    self.settings.setValue(f'istorija_col_{i}_width', self.istorija_table.columnWidth(i))
+        except Exception as e:
+            print(f"Error saving column widths: {e}")
+    
+    def restore_column_widths(self):
+        """Učitava sačuvane širine kolona"""
+        try:
+            # Toneri
+            for i in range(self.toneri_table.columnCount()):
+                width = self.settings.value(f'toneri_col_{i}_width', None)
+                if width:
+                    self.toneri_table.setColumnWidth(i, int(width))
+            
+            # Štampači
+            for i in range(self.stampaci_table.columnCount()):
+                width = self.settings.value(f'stampaci_col_{i}_width', None)
+                if width:
+                    self.stampaci_table.setColumnWidth(i, int(width))
+            
+            # Radnici
+            for i in range(self.radnici_table.columnCount()):
+                width = self.settings.value(f'radnici_col_{i}_width', None)
+                if width:
+                    self.radnici_table.setColumnWidth(i, int(width))
+            
+            # Pregled
+            for i in range(self.pregled_table.columnCount()):
+                width = self.settings.value(f'pregled_col_{i}_width', None)
+                if width:
+                    self.pregled_table.setColumnWidth(i, int(width))
+            
+            # Istorija
+            if hasattr(self, 'istorija_table'):
+                for i in range(self.istorija_table.columnCount()):
+                    width = self.settings.value(f'istorija_col_{i}_width', None)
+                    if width:
+                        self.istorija_table.setColumnWidth(i, int(width))
+        except Exception as e:
+            print(f"Error restoring column widths: {e}")
+    
+    def closeEvent(self, event):
+        """Override closeEvent da sačuva širine kolona pri zatvaranju"""
+        self.save_column_widths()
+        event.accept()
+    
+    def update_ukupno_tonera(self):
+        """Računa i prikazuje ukupan zbir svih tonera u realnom vremenu"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COALESCE(SUM(trenutno_stanje), 0) FROM toneri")
+            ukupno = cursor.fetchone()[0]
+            conn.close()
+            
+            if self.lang == 'sr':
+                self.ukupno_tonera_label.setText(f"📦 Ukupno tonera: {ukupno}")
+            else:
+                self.ukupno_tonera_label.setText(f"📦 Total toners: {ukupno}")
+        except Exception as e:
+            print(f"Error updating total toners: {e}")
+            self.ukupno_tonera_label.setText("📦 Ukupno: 0")
+    
+    def update_ukupno_stampaca(self):
+        """Računa i prikazuje ukupan broj svih štampača u realnom vremenu"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COALESCE(SUM(kolicina), 0) FROM stampaci")
+            ukupno = cursor.fetchone()[0]
+            conn.close()
+            
+            if self.lang == 'sr':
+                self.ukupno_stampaca_label.setText(f"🖨️ Ukupno štampača: {ukupno}")
+            else:
+                self.ukupno_stampaca_label.setText(f"🖨️ Total printers: {ukupno}")
+        except Exception as e:
+            print(f"Error updating total printers: {e}")
+            self.ukupno_stampaca_label.setText("🖨️ Ukupno: 0")
     
     def load_pregled(self):
-        """Učitava kompletan pregled: ko ima koje štampače i tonere"""
+        """Učitava kompletan pregled: SVE radnike, štampače i tonere - označava nepovezane crveno"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
         
+        all_rows = []
+        
+        # 1. Sve veze radnik-stampac-toneri (kompletno povezani)
         cursor.execute('''
             SELECT 
                 r.ime || ' ' || r.prezime as radnik,
@@ -1263,22 +1474,67 @@ class MainWindow(QMainWindow):
                 s.status,
                 GROUP_CONCAT(t.model, ', ') as toneri
             FROM radnici r
-            LEFT JOIN radnik_stampaci rs ON r.id = rs.radnik_id
-            LEFT JOIN stampaci s ON rs.stampac_id = s.id
+            JOIN radnik_stampaci rs ON r.id = rs.radnik_id
+            JOIN stampaci s ON rs.stampac_id = s.id
             LEFT JOIN stampac_toneri st ON s.id = st.stampac_id
             LEFT JOIN toneri t ON st.toner_id = t.id
             GROUP BY r.id, s.id
             ORDER BY r.prezime, r.ime, s.model
         ''')
+        all_rows.extend(cursor.fetchall())
         
-        rows = cursor.fetchall()
+        # 2. Radnici BEZ štampača
+        cursor.execute('''
+            SELECT 
+                r.ime || ' ' || r.prezime as radnik,
+                NULL as stampac_model,
+                NULL as status,
+                NULL as toneri
+            FROM radnici r
+            WHERE r.id NOT IN (SELECT DISTINCT radnik_id FROM radnik_stampaci)
+            ORDER BY r.prezime, r.ime
+        ''')
+        all_rows.extend(cursor.fetchall())
+        
+        # 3. Štampači BEZ radnika (ali možda sa tonerima)
+        cursor.execute('''
+            SELECT 
+                NULL as radnik,
+                s.model as stampac_model,
+                s.status,
+                GROUP_CONCAT(t.model, ', ') as toneri
+            FROM stampaci s
+            LEFT JOIN stampac_toneri st ON s.id = st.stampac_id
+            LEFT JOIN toneri t ON st.toner_id = t.id
+            WHERE s.id NOT IN (SELECT DISTINCT stampac_id FROM radnik_stampaci WHERE stampac_id IS NOT NULL)
+            GROUP BY s.id
+            ORDER BY s.model
+        ''')
+        all_rows.extend(cursor.fetchall())
+        
+        # 4. Toneri BEZ štampača
+        cursor.execute('''
+            SELECT 
+                NULL as radnik,
+                NULL as stampac_model,
+                NULL as status,
+                t.model as toneri
+            FROM toneri t
+            WHERE t.id NOT IN (SELECT DISTINCT toner_id FROM stampac_toneri WHERE toner_id IS NOT NULL)
+            ORDER BY t.model
+        ''')
+        all_rows.extend(cursor.fetchall())
+        
         conn.close()
         
-        self.pregled_table.setRowCount(len(rows))
-        for i, row in enumerate(rows):
+        self.pregled_table.setRowCount(len(all_rows))
+        for i, row in enumerate(all_rows):
             for j, value in enumerate(row):
+                # Determine if this field is missing (NULL or None)
+                is_missing = value is None or value == "" or value == "None"
+                
                 # Translate status column (j==2)
-                if j == 2 and value:
+                if j == 2 and value and not is_missing:
                     status_map = {
                         'Aktivan': T.get('status_active', self.lang),
                         'Na servisu': T.get('status_in_service', self.lang),
@@ -1287,15 +1543,26 @@ class MainWindow(QMainWindow):
                     display_value = status_map.get(value, value)
                     item = QTableWidgetItem(display_value)
                 else:
-                    item = QTableWidgetItem(str(value) if value else "-")
+                    item = QTableWidgetItem(str(value) if value and not is_missing else "-")
                 
-                # Oboji status kolonu (sada je na poziciji 2)
-                if j == 2:
+                # Color logic
+                if is_missing:
+                    # MISSING data - RED background
+                    item.setBackground(QColor(255, 200, 200))
+                    item.setForeground(QColor(0, 0, 0))  # Black text
+                elif j == 2:  # Status column with data
                     # Check against database values for coloring
                     if value == "Na servisu":
                         item.setBackground(QColor(255, 255, 200))
                     elif value == "Za rashod":
                         item.setBackground(QColor(255, 150, 150))
+                    else:
+                        item.setBackground(QColor(255, 255, 255))  # White for normal status
+                    item.setForeground(QColor(0, 0, 0))  # Black text
+                else:
+                    # Normal data - white background
+                    item.setBackground(QColor(255, 255, 255))
+                    item.setForeground(QColor(0, 0, 0))  # Black text
                 
                 # Zaključaj sve ćelije - PREGLED je read-only
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
@@ -1306,30 +1573,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, "search_input") and self.search_input.text():
             self.apply_search_highlighting()
 
-    def on_toner_cell_clicked(self, row, column):
-        """Kada se klikne na Driver link kolonu (4), otvori link u browseru"""
-        if column == 4:  # Driver link kolona (sada na poziciji 4)
-            item = self.toneri_table.item(row, 4)
-            if item and item.text().strip():
-                link = item.text().strip()
-                
-                # Ako link ne počinje sa http:// ili https://, dodaj http://
-                if not link.startswith('http://') and not link.startswith('https://'):
-                    if link.startswith('www.'):
-                        link = 'https://' + link
-                    else:
-                        # Možda je samo domen
-                        link = 'https://' + link
-                else:
-                    link = link.strip()
-                
-                # Otvori link u browseru
-                import webbrowser
-                try:
-                    webbrowser.open(link)
-                except Exception as e:
-                    QMessageBox.warning(self, T.get("error", self.lang), f"Ne mogu otvoriti link:\n{str(e)}")
-    
     def on_toner_stanje_changed(self, item):
         """Kada korisnik promeni vrednost u bilo kojoj koloni tonera"""
         col = item.column()
@@ -1367,10 +1610,6 @@ class MainWindow(QMainWindow):
                     self.load_toneri()
                     return
                 cursor.execute("UPDATE toneri SET trenutno_stanje = ? WHERE id = ?", (new_value, toner_id))
-            
-            elif col == 4:  # Driver link
-                new_value = item.text().strip()
-                cursor.execute("UPDATE toneri SET driver_link = ? WHERE id = ?", (new_value, toner_id))
             
             conn.commit()
             conn.close()
@@ -1561,6 +1800,10 @@ class MainWindow(QMainWindow):
                 new_value = item.text().strip()
                 cursor.execute("UPDATE stampaci SET napomena = ? WHERE id = ?", (new_value, stampac_id))
             
+            elif col == 7:  # Driver Link
+                new_value = item.text().strip()
+                cursor.execute("UPDATE stampaci SET driver_link = ? WHERE id = ?", (new_value, stampac_id))
+            
             conn.commit()
             conn.close()
             
@@ -1624,8 +1867,15 @@ class MainWindow(QMainWindow):
             self.load_radnici()
     
     def on_stampac_cell_clicked(self, row, column):
-        """Kada se klikne na kolonu Status (5), prikaži dropdown za promenu"""
+        """Kada se klikne na kolonu Status (5) ili Driver Link (7)"""
         if column == 5:  # Status kolona (sada na poziciji 5)
+            # Prvo proveri da li već postoji combo box u ovoj ćeliji
+            existing_widget = self.stampaci_table.cellWidget(row, column)
+            if existing_widget:
+                # Ako već postoji widget, ukloni ga i ne radi ništa
+                self.stampaci_table.removeCellWidget(row, column)
+                return
+            
             stampac_id = int(self.stampaci_table.item(row, 0).text())
             current_status = self.stampaci_table.item(row, 5).text()
             
@@ -1638,18 +1888,31 @@ class MainWindow(QMainWindow):
             self.stampaci_table.setCellWidget(row, column, combo)
             combo.showPopup()
             
-            # Kada se izabere nova vrednost
-            def on_status_changed(new_status):
+            # Kada se izabere nova vrednost (koristeći activated umesto currentTextChanged)
+            def on_status_activated(index):
+                new_status = combo.itemText(index)
+                
+                # Prvo ukloni combo iz tabele
+                self.stampaci_table.removeCellWidget(row, column)
+                
                 if new_status != current_status:
                     reply = QMessageBox.question(self, T.get("confirm", self.lang), 
                                                 T.get("confirm_change_status", self.lang).format(new_status),
                                                 QMessageBox.Yes | QMessageBox.No)
                     if reply == QMessageBox.Yes:
+                        # Konvertuj prevedeni status nazad u srpski za bazu
+                        reverse_status_map = {
+                            T.get('status_active', self.lang): 'Aktivan',
+                            T.get('status_in_service', self.lang): 'Na servisu',
+                            T.get('status_for_disposal', self.lang): 'Za rashod'
+                        }
+                        db_status = reverse_status_map.get(new_status, new_status)
+                        
                         # Sačuvaj u bazu
                         conn = self.db.get_connection()
                         cursor = conn.cursor()
                         cursor.execute("UPDATE stampaci SET status = ? WHERE id = ?", 
-                                     (new_status, stampac_id))
+                                     (db_status, stampac_id))
                         conn.commit()
                         conn.close()
                         
@@ -1658,16 +1921,52 @@ class MainWindow(QMainWindow):
                         self.load_pregled()
                         QMessageBox.information(self, T.get("success", self.lang), T.get("msg_status_changed", self.lang))
                     else:
-                        self.load_stampaci()  # Vrati staro
-                else:
-                    self.load_stampaci()
+                        # Samo reload bez promene
+                        self.load_stampaci()
+                # Ako je isti status, ne radi ništa - combo je već uklonjen
             
-            combo.currentTextChanged.connect(on_status_changed)
+            # Koristi activated signal umesto currentTextChanged
+            combo.activated.connect(on_status_activated)
+            
+            # Dodaj i handler za zatvaranje popup-a bez izbora
+            def on_popup_hidden():
+                # Ukloni combo ako popup bude zatvoren bez izbora
+                if self.stampaci_table.cellWidget(row, column) == combo:
+                    self.stampaci_table.removeCellWidget(row, column)
+            
+            # Ovo nije idealno, ali možemo koristiti timer
+            combo.hidePopup_original = combo.hidePopup
+            def hidePopup_wrapped():
+                combo.hidePopup_original()
+                # Odloži uklanjanje da signal 'activated' može da se izvrši prvo
+                QTimer.singleShot(100, on_popup_hidden)
+            combo.hidePopup = hidePopup_wrapped
+        
+        elif column == 7:  # Driver Link kolona
+            item = self.stampaci_table.item(row, 7)
+            if item and item.text().strip():
+                link = item.text().strip()
+                
+                # Ako link ne počinje sa http:// ili https://, dodaj https://
+                if not link.startswith('http://') and not link.startswith('https://'):
+                    if link.startswith('www.'):
+                        link = 'https://' + link
+                    else:
+                        link = 'https://' + link
+                
+                # Otvori link pomoću odloženog poziva (sigurnije za Qt)
+                def open_link():
+                    try:
+                        QDesktopServices.openUrl(QUrl(link))
+                    except Exception as e:
+                        QMessageBox.warning(self, T.get("error", self.lang), f"Ne mogu otvoriti link:\n{str(e)}")
+                
+                QTimer.singleShot(100, open_link)  # Odloži 100ms
     
     def load_toneri(self):
         conn = self.db.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id, model, minimalna_kolicina, trenutno_stanje, driver_link FROM toneri ORDER BY model")
+        cursor.execute("SELECT id, model, minimalna_kolicina, trenutno_stanje FROM toneri ORDER BY model")
         rows = cursor.fetchall()
         conn.close()
         
@@ -1680,21 +1979,13 @@ class MainWindow(QMainWindow):
         self.toneri_table.setRowCount(len(rows))
         for i, row in enumerate(rows):
             for j, value in enumerate(row):
-                item = QTableWidgetItem(str(value) if value else "")
+                item = QTableWidgetItem(str(value) if value is not None else "")
                 
                 # SVE kolone osim ID (0) su editabilne
                 if j == 0:
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 else:
                     item.setFlags(item.flags() | Qt.ItemIsEditable)
-                
-                # Driver link kolona (4) - stilizuj kao link
-                if j == 4 and value and not self.search_active:
-                    item.setForeground(QColor(0, 0, 255))  # Plava boja
-                    font = item.font()
-                    font.setUnderline(True)
-                    item.setFont(font)
-                    item.setToolTip(T.get("tooltip_click_link", self.lang))
                 
                 # Oboji red ako je ispod minimuma - min_kol je j=2, stanje je j=3
                 if j == 3 and row[3] < row[2] and not self.search_active:  # stanje < min_količina
@@ -1708,6 +1999,9 @@ class MainWindow(QMainWindow):
             pass
         self.toneri_table.itemChanged.connect(self.on_toner_stanje_changed)
         
+        # Ažuriraj ukupan zbir tonera
+        self.update_ukupno_tonera()
+        
         # Re-apply search highlighting if search is active
         if hasattr(self, 'search_input') and self.search_input and self.search_input.text():
             self.apply_search_highlighting()
@@ -1718,8 +2012,17 @@ class MainWindow(QMainWindow):
         
         status_filter = self.status_filter.currentText()
         
+        # Konvertuj prevedeni status nazad u srpski za upit
+        reverse_status_map = {
+            T.get('status_all', self.lang): 'Svi',
+            T.get('status_active', self.lang): 'Aktivan',
+            T.get('status_in_service', self.lang): 'Na servisu',
+            T.get('status_for_disposal', self.lang): 'Za rashod'
+        }
+        db_status_filter = reverse_status_map.get(status_filter, status_filter)
+        
         # Query with calculated dodeljeno count
-        if status_filter == T.get("status_all", self.lang):
+        if db_status_filter == 'Svi' or status_filter == T.get("status_all", self.lang):
             cursor.execute("""
                 SELECT 
                     s.id, 
@@ -1727,7 +2030,8 @@ class MainWindow(QMainWindow):
                     COALESCE(s.kolicina, 1) as kolicina,
                     COUNT(DISTINCT rs.radnik_id) as dodeljeno,
                     s.status, 
-                    s.napomena
+                    s.napomena,
+                    s.driver_link
                 FROM stampaci s
                 LEFT JOIN radnik_stampaci rs ON s.id = rs.stampac_id
                 GROUP BY s.id
@@ -1741,13 +2045,14 @@ class MainWindow(QMainWindow):
                     COALESCE(s.kolicina, 1) as kolicina,
                     COUNT(DISTINCT rs.radnik_id) as dodeljeno,
                     s.status, 
-                    s.napomena
+                    s.napomena,
+                    s.driver_link
                 FROM stampaci s
                 LEFT JOIN radnik_stampaci rs ON s.id = rs.stampac_id
                 WHERE s.status = ?
                 GROUP BY s.id
                 ORDER BY s.model
-            """, (status_filter,))
+            """, (db_status_filter,))
         
         rows = cursor.fetchall()
         conn.close()
@@ -1760,7 +2065,7 @@ class MainWindow(QMainWindow):
         
         self.stampaci_table.setRowCount(len(rows))
         for i, row in enumerate(rows):
-            stampac_id, model, kolicina, dodeljeno, status, napomena = row
+            stampac_id, model, kolicina, dodeljeno, status, napomena, driver_link = row
             slobodno = kolicina - dodeljeno
             
             # Column 0: ID
@@ -1812,6 +2117,18 @@ class MainWindow(QMainWindow):
             item_nap = QTableWidgetItem(napomena if napomena else "")
             item_nap.setFlags(item_nap.flags() | Qt.ItemIsEditable)
             self.stampaci_table.setItem(i, 6, item_nap)
+            
+            # Column 7: Driver Link (editable)
+            item_driver = QTableWidgetItem(driver_link if driver_link else "")
+            item_driver.setFlags(item_driver.flags() | Qt.ItemIsEditable)
+            # Style as link if has value
+            if driver_link and driver_link.strip() and not self.search_active:
+                item_driver.setForeground(QColor(0, 0, 255))  # Blue
+                font = item_driver.font()
+                font.setUnderline(True)
+                item_driver.setFont(font)
+                item_driver.setToolTip(T.get("tooltip_click_link", self.lang))
+            self.stampaci_table.setItem(i, 7, item_driver)
         
         # Ponovo omogući signal
         try:
@@ -1820,16 +2137,13 @@ class MainWindow(QMainWindow):
             pass
         self.stampaci_table.itemChanged.connect(self.on_stampac_item_changed)
         
+        # Ažuriraj ukupan broj štampača
+        self.update_ukupno_stampaca()
+        
         # Re-apply search highlighting if search is active
         if self.search_active:
             self.apply_search_highlighting()
-            pass
-        self.stampaci_table.itemChanged.connect(self.on_stampac_item_changed)
     
-        # Re-apply search highlighting
-        if hasattr(self, "search_input") and self.search_input.text():
-            self.apply_search_highlighting()
-
     def load_radnici(self):
         conn = self.db.get_connection()
         cursor = conn.cursor()
@@ -1868,272 +2182,415 @@ class MainWindow(QMainWindow):
             self.apply_search_highlighting()
 
     def search_all(self):
-        search_text = self.search_input.text().lower()
-        
-        # If search is empty, show all rows and reset colors + tab styles
-        if not search_text:
-            self.search_active = False  # Clear search flag
-            # Reset tab styles
-            for i in range(self.tabs.count()):
-                self.tabs.tabBar().setTabTextColor(i, QColor(0, 0, 0))  # Black
-                # Remove any custom stylesheet
-            self.tabs.setStyleSheet("")
-            # Reset toneri
-            for i in range(self.toneri_table.rowCount()):
-                self.toneri_table.setRowHidden(i, False)
-                for j in range(self.toneri_table.columnCount()):
-                    item = self.toneri_table.item(i, j)
-                    if item:
-                        item.setBackground(QColor(255, 255, 255))
+        """Pretražuje sve tabele po unetom tekstu"""
+        try:
+            search_text = self.search_input.text().lower()
             
-            # Reset stampaci
-            for i in range(self.stampaci_table.rowCount()):
-                self.stampaci_table.setRowHidden(i, False)
-                for j in range(self.stampaci_table.columnCount()):
-                    item = self.stampaci_table.item(i, j)
-                    if item:
-                        # Restore status colors
-                        if j == 2:
-                            status_text = item.text()
-                            if T.get("status_in_service", self.lang) in status_text or "Na servisu" in status_text:
-                                item.setBackground(QColor(255, 255, 200))
-                            elif T.get("status_for_disposal", self.lang) in status_text or "Za rashod" in status_text:
-                                item.setBackground(QColor(255, 150, 150))
-                            else:
-                                item.setBackground(QColor(255, 255, 255))
-                        else:
-                            item.setBackground(QColor(255, 255, 255))
+            # Ako je search prazan, jednostavno prikaži sve redove
+            if not search_text:
+                self.search_active = False  # Clear search flag
+                
+                # Reset tab styles
+                try:
+                    for i in range(self.tabs.count()):
+                        self.tabs.tabBar().setTabTextColor(i, QColor(0, 0, 0))  # Black
+                except:
+                    pass
+                
+                # Privremeno blokiraj search signal da ne bi došlo do rekurzije
+                try:
+                    self.search_input.blockSignals(True)
+                    
+                    # Pokaži sve redove u svim tabelama
+                    if hasattr(self, 'toneri_table'):
+                        for i in range(self.toneri_table.rowCount()):
+                            self.toneri_table.setRowHidden(i, False)
+                    if hasattr(self, 'stampaci_table'):
+                        for i in range(self.stampaci_table.rowCount()):
+                            self.stampaci_table.setRowHidden(i, False)
+                    if hasattr(self, 'radnici_table'):
+                        for i in range(self.radnici_table.rowCount()):
+                            self.radnici_table.setRowHidden(i, False)
+                    if hasattr(self, 'pregled_table'):
+                        for i in range(self.pregled_table.rowCount()):
+                            self.pregled_table.setRowHidden(i, False)
+                    
+                    # Resetuj boje tako što ćemo ponovo učitati tabele
+                    QTimer.singleShot(100, self.delayed_reload_tables)
+                    
+                except Exception as e:
+                    print(f"Error in search reset: {e}")
+                finally:
+                    try:
+                        self.search_input.blockSignals(False)
+                    except:
+                        pass
+                return
             
-            # Reset radnici
-            for i in range(self.radnici_table.rowCount()):
-                self.radnici_table.setRowHidden(i, False)
-                for j in range(self.radnici_table.columnCount()):
-                    item = self.radnici_table.item(i, j)
-                    if item:
-                        item.setBackground(QColor(255, 255, 255))
+            # Disconnect all itemChanged signals to prevent triggering during search
+            try:
+                self.toneri_table.itemChanged.disconnect(self.on_toner_stanje_changed)
+            except:
+                pass
+            try:
+                self.stampaci_table.itemChanged.disconnect(self.on_stampac_item_changed)
+            except:
+                pass
+            try:
+                self.radnici_table.itemChanged.disconnect(self.on_radnik_item_changed)
+            except:
+                pass
             
-            # Reset pregled
-            for i in range(self.pregled_table.rowCount()):
-                self.pregled_table.setRowHidden(i, False)
-                for j in range(self.pregled_table.columnCount()):
-                    item = self.pregled_table.item(i, j)
-                    if item:
-                        # Restore status colors
-                        if j == 2:
-                            status_text = item.text()
-                            if T.get("status_in_service", self.lang) in status_text or "Na servisu" in status_text:
-                                item.setBackground(QColor(255, 255, 200))
-                            elif T.get("status_for_disposal", self.lang) in status_text or "Za rashod" in status_text:
-                                item.setBackground(QColor(255, 150, 150))
-                            else:
-                                item.setBackground(QColor(255, 255, 255))
-                        else:
-                            item.setBackground(QColor(255, 255, 255))
-            return
-        
-        # Define highlight color - BRIGHT GREEN for maximum visibility TEST
-        self.search_active = True  # Set flag to preserve highlighting
-        highlight_color = QColor(34, 139, 34)  # DARK GREEN
-        default_color = QColor(255, 255, 255)    # White
-        
-        # Pretraži tonere
-        for i in range(self.toneri_table.rowCount()):
-            match = False
-            for j in range(self.toneri_table.columnCount()):
-                item = self.toneri_table.item(i, j)
-                if item:
-                    if search_text in item.text().lower():
-                        match = True
-                        print(f"🟢 TONERI: Highlighting [{i},{j}] = '{item.text()}'")
-                        # TRIPLE highlighting for maximum visibility:
-                        # 1. Background color
-                        item.setBackground(highlight_color)
-                        # 2. Bold + larger font
+            # Define highlight color
+            self.search_active = True  # Set flag to preserve highlighting
+            highlight_color = QColor(34, 139, 34)  # DARK GREEN
+            default_color = QColor(255, 255, 255)    # White
+            
+            # Pretraži tonere
+            if hasattr(self, 'toneri_table'):
+                for i in range(self.toneri_table.rowCount()):
+                    # Check if this toner is below minimum
+                    min_qty_item = self.toneri_table.item(i, 2)  # Column 2: Min. količina
+                    stock_item = self.toneri_table.item(i, 3)    # Column 3: Stanje
+                    is_below_min = False
+                    if min_qty_item and stock_item:
                         try:
-                            font = item.font()
-                            font.setBold(True)
-                            item.setFont(font)
-                            # 3. Red text color
-                            item.setForeground(QColor(200, 0, 0))
-                        except RuntimeError:
-                            pass  # Item was deleted
-                    else:
-                        # Reset to defaults
-                        try:
-                            item.setBackground(default_color)
-                            font = item.font()
-                            font.setBold(False)
-                            item.setFont(font)
-                            item.setForeground(QColor(0, 0, 0))  # Black text
-                        except RuntimeError:
-                            pass  # Item was deleted
-            self.toneri_table.setRowHidden(i, not match)
-        
-        # Pretraži štampače
-        for i in range(self.stampaci_table.rowCount()):
-            match = False
-            for j in range(self.stampaci_table.columnCount()):
-                item = self.stampaci_table.item(i, j)
-                if item:
-                    if search_text in item.text().lower():
-                        match = True
-                        item.setBackground(highlight_color)
-                        try:
-                            font = item.font()
-                            font.setBold(True)
-                            item.setFont(font)
-                            item.setForeground(QColor(200, 0, 0))
-                        except RuntimeError:
+                            min_qty = int(min_qty_item.text())
+                            stock = int(stock_item.text())
+                            is_below_min = stock < min_qty
+                        except:
                             pass
-                    else:
-                        # Preserve status column colors
-                        if j == 2:  # Status column
-                            status_text = item.text()
-                            if T.get("status_in_service", self.lang) in status_text or "Na servisu" in status_text:
-                                item.setBackground(QColor(255, 255, 200))
-                            elif T.get("status_for_disposal", self.lang) in status_text or "Za rashod" in status_text:
-                                item.setBackground(QColor(255, 150, 150))
-                            else:
-                                item.setBackground(default_color)
-                        else:
-                            item.setBackground(default_color)
-            self.stampaci_table.setRowHidden(i, not match)
-        
-        # Pretraži radnike
-        for i in range(self.radnici_table.rowCount()):
-            match = False
-            for j in range(self.radnici_table.columnCount()):
-                item = self.radnici_table.item(i, j)
-                if item:
-                    if search_text in item.text().lower():
-                        match = True
-                        item.setBackground(highlight_color)
+                    
+                    row_has_match = False
+                    for j in range(self.toneri_table.columnCount()):
+                        item = self.toneri_table.item(i, j)
+                        if item:
+                            cell_has_match = search_text in item.text().lower()
+                            if cell_has_match:
+                                row_has_match = True
+                            
+                            # Reset formatting first
+                            try:
+                                font = item.font()
+                                font.setBold(False)
+                                item.setFont(font)
+                                item.setForeground(QColor(0, 0, 0))  # Black text
+                            except RuntimeError:
+                                pass
+                            
+                            # Apply appropriate background
+                            try:
+                                if cell_has_match:
+                                    # This specific cell matches - GREEN highlight
+                                    item.setBackground(highlight_color)
+                                    font = item.font()
+                                    font.setBold(True)
+                                    item.setFont(font)
+                                    item.setForeground(QColor(255, 255, 255))  # White text for visibility
+                                else:
+                                    # No match in this cell - preserve original color
+                                    if is_below_min:
+                                        item.setBackground(QColor(255, 200, 200))  # Red - below minimum
+                                    else:
+                                        item.setBackground(default_color)  # White
+                            except RuntimeError:
+                                pass
+                    
+                    self.toneri_table.setRowHidden(i, not row_has_match)
+            
+            # Pretraži štampače
+            if hasattr(self, 'stampaci_table'):
+                for i in range(self.stampaci_table.rowCount()):
+                    # Get Slobodno value for this row (column 4)
+                    slobodno_item = self.stampaci_table.item(i, 4)
+                    slobodno_value = 0
+                    if slobodno_item:
                         try:
-                            font = item.font()
-                            font.setBold(True)
-                            item.setFont(font)
-                            item.setForeground(QColor(200, 0, 0))
-                        except RuntimeError:
+                            slobodno_value = int(slobodno_item.text())
+                        except:
                             pass
-                    else:
-                        item.setBackground(default_color)
-            self.radnici_table.setRowHidden(i, not match)
-        
-        # Pretraži pregled (NO HIGHLIGHTING - just hide/show)
-        for i in range(self.pregled_table.rowCount()):
-            match = False
-            for j in range(self.pregled_table.columnCount()):
-                item = self.pregled_table.item(i, j)
-                if item and search_text in item.text().lower():
-                    match = True
-                    break
-            self.pregled_table.setRowHidden(i, not match)
+                    
+                    row_has_match = False
+                    for j in range(self.stampaci_table.columnCount()):
+                        item = self.stampaci_table.item(i, j)
+                        if item:
+                            cell_has_match = search_text in item.text().lower()
+                            if cell_has_match:
+                                row_has_match = True
+                            
+                            # Reset formatting first
+                            try:
+                                font = item.font()
+                                font.setBold(False)
+                                item.setFont(font)
+                                item.setForeground(QColor(0, 0, 0))  # Black text
+                            except RuntimeError:
+                                pass
+                            
+                            # Apply appropriate background
+                            try:
+                                if cell_has_match:
+                                    # This specific cell matches - GREEN highlight
+                                    item.setBackground(highlight_color)
+                                    font = item.font()
+                                    font.setBold(True)
+                                    item.setFont(font)
+                                    item.setForeground(QColor(255, 255, 255))  # White text for visibility
+                                else:
+                                    # No match in this cell - preserve original colors
+                                    if j == 4:  # Slobodno column
+                                        if slobodno_value > 0:
+                                            item.setBackground(QColor(200, 255, 200))  # Green
+                                        elif slobodno_value == 0:
+                                            item.setBackground(QColor(255, 220, 220))  # Red
+                                        else:
+                                            item.setBackground(default_color)
+                                    elif j == 5:  # Status column
+                                        status_text = item.text()
+                                        if T.get("status_in_service", self.lang) in status_text or "Na servisu" in status_text:
+                                            item.setBackground(QColor(255, 255, 200))  # Yellow
+                                        elif T.get("status_for_disposal", self.lang) in status_text or "Za rashod" in status_text:
+                                            item.setBackground(QColor(255, 150, 150))  # Red
+                                        else:
+                                            item.setBackground(default_color)
+                                    else:
+                                        item.setBackground(default_color)
+                            except RuntimeError:
+                                pass
+                    
+                    self.stampaci_table.setRowHidden(i, not row_has_match)
+            
+            # Pretraži radnike
+            if hasattr(self, 'radnici_table'):
+                for i in range(self.radnici_table.rowCount()):
+                    row_has_match = False
+                    for j in range(self.radnici_table.columnCount()):
+                        item = self.radnici_table.item(i, j)
+                        if item:
+                            cell_has_match = search_text in item.text().lower()
+                            if cell_has_match:
+                                row_has_match = True
+                            
+                            # Reset formatting first
+                            try:
+                                font = item.font()
+                                font.setBold(False)
+                                item.setFont(font)
+                                item.setForeground(QColor(0, 0, 0))  # Black text
+                            except RuntimeError:
+                                pass
+                            
+                            # Apply appropriate background
+                            try:
+                                if cell_has_match:
+                                    # This specific cell matches - GREEN highlight
+                                    item.setBackground(highlight_color)
+                                    font = item.font()
+                                    font.setBold(True)
+                                    item.setFont(font)
+                                    item.setForeground(QColor(255, 255, 255))  # White text for visibility
+                                else:
+                                    # No match in this cell
+                                    item.setBackground(default_color)
+                            except RuntimeError:
+                                pass
+                    self.radnici_table.setRowHidden(i, not row_has_match)
+            
+            # Pretraži pregled (NO HIGHLIGHTING - just hide/show)
+            if hasattr(self, 'pregled_table'):
+                for i in range(self.pregled_table.rowCount()):
+                    match = False
+                    for j in range(self.pregled_table.columnCount()):
+                        item = self.pregled_table.item(i, j)
+                        if item and search_text in item.text().lower():
+                            match = True
+                            break
+                    self.pregled_table.setRowHidden(i, not match)
 
-        # Highlight tabs that have matches
-        # Check each table for matches
-        toneri_has_match = any(not self.toneri_table.isRowHidden(i) for i in range(self.toneri_table.rowCount()))
-        stampaci_has_match = any(not self.stampaci_table.isRowHidden(i) for i in range(self.stampaci_table.rowCount()))
-        radnici_has_match = any(not self.radnici_table.isRowHidden(i) for i in range(self.radnici_table.rowCount()))
-        
-        # Highlight tab buttons (indices: 0=Toneri, 1=Stampaci, 2=Radnici)
-        if toneri_has_match:
-            self.tabs.tabBar().setTabTextColor(0, QColor(34, 139, 34))  # DARK GREEN
-        else:
-            self.tabs.tabBar().setTabTextColor(0, QColor(0, 0, 0))  # Black
-        
-        if stampaci_has_match:
-            self.tabs.tabBar().setTabTextColor(1, QColor(34, 139, 34))  # DARK GREEN
-        else:
-            self.tabs.tabBar().setTabTextColor(1, QColor(0, 0, 0))  # Black
-        
-        if radnici_has_match:
-            self.tabs.tabBar().setTabTextColor(2, QColor(34, 139, 34))  # DARK GREEN
-        else:
-            self.tabs.tabBar().setTabTextColor(2, QColor(0, 0, 0))  # Black
+            # Highlight tabs that have matches
+            # Check each table for matches
+            toneri_has_match = False
+            stampaci_has_match = False
+            radnici_has_match = False
+            
+            if hasattr(self, 'toneri_table'):
+                toneri_has_match = any(not self.toneri_table.isRowHidden(i) for i in range(self.toneri_table.rowCount()))
+            
+            if hasattr(self, 'stampaci_table'):
+                stampaci_has_match = any(not self.stampaci_table.isRowHidden(i) for i in range(self.stampaci_table.rowCount()))
+            
+            if hasattr(self, 'radnici_table'):
+                radnici_has_match = any(not self.radnici_table.isRowHidden(i) for i in range(self.radnici_table.rowCount()))
+            
+            # Highlight tab buttons (indices: 0=Toneri, 1=Stampaci, 2=Radnici)
+            try:
+                if toneri_has_match:
+                    self.tabs.tabBar().setTabTextColor(0, QColor(34, 139, 34))  # DARK GREEN
+                else:
+                    self.tabs.tabBar().setTabTextColor(0, QColor(0, 0, 0))  # Black
+                
+                if stampaci_has_match:
+                    self.tabs.tabBar().setTabTextColor(1, QColor(34, 139, 34))  # DARK GREEN
+                else:
+                    self.tabs.tabBar().setTabTextColor(1, QColor(0, 0, 0))  # Black
+                
+                if radnici_has_match:
+                    self.tabs.tabBar().setTabTextColor(2, QColor(34, 139, 34))  # DARK GREEN
+                else:
+                    self.tabs.tabBar().setTabTextColor(2, QColor(0, 0, 0))  # Black
+            except:
+                pass
+            
+            # Reconnect signals
+            try:
+                self.toneri_table.itemChanged.connect(self.on_toner_stanje_changed)
+            except:
+                pass
+            try:
+                self.stampaci_table.itemChanged.connect(self.on_stampac_item_changed)
+            except:
+                pass
+            try:
+                self.radnici_table.itemChanged.connect(self.on_radnik_item_changed)
+            except:
+                pass
+            
+        except Exception as e:
+            print(f"Critical error in search_all: {e}")
+            # Reset everything if there's a critical error
+            self.search_active = False
+            QTimer.singleShot(100, self.delayed_reload_tables)
+    
+    def delayed_reload_tables(self):
+        """Reload tables with a delay to prevent UI freezing"""
+        try:
+            # Disconnect signals temporarily
+            try:
+                self.toneri_table.itemChanged.disconnect(self.on_toner_stanje_changed)
+            except:
+                pass
+            try:
+                self.stampaci_table.itemChanged.disconnect(self.on_stampac_item_changed)
+            except:
+                pass
+            try:
+                self.radnici_table.itemChanged.disconnect(self.on_radnik_item_changed)
+            except:
+                pass
+            
+            # Reload tables
+            self.load_toneri()
+            self.load_stampaci()
+            self.load_radnici()
+            self.load_pregled()
+            
+            # Reconnect signals
+            try:
+                self.toneri_table.itemChanged.connect(self.on_toner_stanje_changed)
+            except:
+                pass
+            try:
+                self.stampaci_table.itemChanged.connect(self.on_stampac_item_changed)
+            except:
+                pass
+            try:
+                self.radnici_table.itemChanged.connect(self.on_radnik_item_changed)
+            except:
+                pass
+            
+        except Exception as e:
+            print(f"Error in delayed_reload_tables: {e}")
     
 
     def apply_search_highlighting(self):
         """Apply highlighting to search results in ALL tables"""
-        search_text = self.search_input.text().lower()
-        if not search_text:
-            return
-        
-        # DISCONNECT all itemChanged signals to prevent recursion
         try:
-            self.toneri_table.itemChanged.disconnect(self.on_toner_stanje_changed)
-        except:
-            pass
-        try:
-            self.stampaci_table.itemChanged.disconnect(self.on_stampac_item_changed)
-        except:
-            pass
-        try:
-            self.radnici_table.itemChanged.disconnect(self.on_radnik_item_changed)
-        except:
-            pass
-        
-        highlight_color = QColor(34, 139, 34)  # DARK GREEN
-        
-        # Highlight in TONERI table
-        for i in range(self.toneri_table.rowCount()):
-            if not self.toneri_table.isRowHidden(i):
-                for j in range(self.toneri_table.columnCount()):
-                    item = self.toneri_table.item(i, j)
-                    if item and search_text in item.text().lower():
-                        try:
-                            item.setBackground(highlight_color)
-                            font = item.font()
-                            font.setBold(True)
-                            item.setFont(font)
-                            item.setForeground(QColor(255, 255, 255))  # White text
-                        except RuntimeError:
-                            pass
-        
-        # Highlight in STAMPACI table
-        for i in range(self.stampaci_table.rowCount()):
-            if not self.stampaci_table.isRowHidden(i):
-                for j in range(self.stampaci_table.columnCount()):
-                    item = self.stampaci_table.item(i, j)
-                    if item and search_text in item.text().lower():
-                        try:
-                            item.setBackground(highlight_color)
-                            font = item.font()
-                            font.setBold(True)
-                            item.setFont(font)
-                            item.setForeground(QColor(255, 255, 255))  # White text
-                        except RuntimeError:
-                            pass
-        
-        # Highlight in RADNICI table
-        for i in range(self.radnici_table.rowCount()):
-            if not self.radnici_table.isRowHidden(i):
-                for j in range(self.radnici_table.columnCount()):
-                    item = self.radnici_table.item(i, j)
-                    if item and search_text in item.text().lower():
-                        try:
-                            item.setBackground(highlight_color)
-                            font = item.font()
-                            font.setBold(True)
-                            item.setFont(font)
-                            item.setForeground(QColor(255, 255, 255))  # White text
-                        except RuntimeError:
-                            pass
-        
-        # PREGLED table - NO highlighting, just hide/show handled by search_all
-        
-        # RECONNECT all signals
-        try:
-            self.toneri_table.itemChanged.connect(self.on_toner_stanje_changed)
-        except:
-            pass
-        try:
-            self.stampaci_table.itemChanged.connect(self.on_stampac_item_changed)
-        except:
-            pass
-        try:
-            self.radnici_table.itemChanged.connect(self.on_radnik_item_changed)
-        except:
-            pass
+            search_text = self.search_input.text().lower()
+            if not search_text:
+                return
+            
+            # DISCONNECT all itemChanged signals to prevent recursion
+            try:
+                self.toneri_table.itemChanged.disconnect(self.on_toner_stanje_changed)
+            except:
+                pass
+            try:
+                self.stampaci_table.itemChanged.disconnect(self.on_stampac_item_changed)
+            except:
+                pass
+            try:
+                self.radnici_table.itemChanged.disconnect(self.on_radnik_item_changed)
+            except:
+                pass
+            
+            highlight_color = QColor(34, 139, 34)  # DARK GREEN
+            
+            # Highlight in TONERI table
+            if hasattr(self, 'toneri_table'):
+                for i in range(self.toneri_table.rowCount()):
+                    if not self.toneri_table.isRowHidden(i):
+                        for j in range(self.toneri_table.columnCount()):
+                            item = self.toneri_table.item(i, j)
+                            if item and search_text in item.text().lower():
+                                try:
+                                    item.setBackground(highlight_color)
+                                    font = item.font()
+                                    font.setBold(True)
+                                    item.setFont(font)
+                                    item.setForeground(QColor(255, 255, 255))  # White text
+                                except RuntimeError:
+                                    pass
+            
+            # Highlight in STAMPACI table
+            if hasattr(self, 'stampaci_table'):
+                for i in range(self.stampaci_table.rowCount()):
+                    if not self.stampaci_table.isRowHidden(i):
+                        for j in range(self.stampaci_table.columnCount()):
+                            item = self.stampaci_table.item(i, j)
+                            if item and search_text in item.text().lower():
+                                try:
+                                    item.setBackground(highlight_color)
+                                    font = item.font()
+                                    font.setBold(True)
+                                    item.setFont(font)
+                                    item.setForeground(QColor(255, 255, 255))  # White text
+                                except RuntimeError:
+                                    pass
+            
+            # Highlight in RADNICI table
+            if hasattr(self, 'radnici_table'):
+                for i in range(self.radnici_table.rowCount()):
+                    if not self.radnici_table.isRowHidden(i):
+                        for j in range(self.radnici_table.columnCount()):
+                            item = self.radnici_table.item(i, j)
+                            if item and search_text in item.text().lower():
+                                try:
+                                    item.setBackground(highlight_color)
+                                    font = item.font()
+                                    font.setBold(True)
+                                    item.setFont(font)
+                                    item.setForeground(QColor(255, 255, 255))  # White text
+                                except RuntimeError:
+                                    pass
+            
+            # PREGLED table - NO highlighting, just hide/show handled by search_all
+            
+            # RECONNECT all signals
+            try:
+                self.toneri_table.itemChanged.connect(self.on_toner_stanje_changed)
+            except:
+                pass
+            try:
+                self.stampaci_table.itemChanged.connect(self.on_stampac_item_changed)
+            except:
+                pass
+            try:
+                self.radnici_table.itemChanged.connect(self.on_radnik_item_changed)
+            except:
+                pass
+            
+        except Exception as e:
+            print(f"Error in apply_search_highlighting: {e}")
     
     def add_toner(self):
         dialog = TonerDialog(self)
@@ -2147,10 +2604,10 @@ class MainWindow(QMainWindow):
                 conn = self.db.get_connection()
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO toneri (model, minimalna_kolicina, trenutno_stanje, driver_link)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO toneri (model, minimalna_kolicina, trenutno_stanje)
+                    VALUES (?, ?, ?)
                 ''', (data['model'], data['minimalna_kolicina'], 
-                      data['trenutno_stanje'], data['driver_link']))
+                      data['trenutno_stanje']))
                 conn.commit()
                 conn.close()
                 self.load_toneri()
@@ -2181,9 +2638,9 @@ class MainWindow(QMainWindow):
                 cursor = conn.cursor()
                 cursor.execute('''
                     UPDATE toneri SET model=?, minimalna_kolicina=?, 
-                    trenutno_stanje=?, driver_link=? WHERE id=?
+                    trenutno_stanje=? WHERE id=?
                 ''', (data['model'], data['minimalna_kolicina'],
-                      data['trenutno_stanje'], data['driver_link'], toner_id))
+                      data['trenutno_stanje'], toner_id))
                 conn.commit()
                 conn.close()
                 self.load_toneri()
@@ -2257,9 +2714,9 @@ class MainWindow(QMainWindow):
                 conn = self.db.get_connection()
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO stampaci (model, kolicina, status, napomena)
-                    VALUES (?, ?, ?, ?)
-                ''', (data['model'], data['kolicina'], data['status'], data['napomena']))
+                    INSERT INTO stampaci (model, kolicina, status, napomena, driver_link)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (data['model'], data['kolicina'], data['status'], data['napomena'], data['driver_link']))
                 
                 stampac_id = cursor.lastrowid
                 
@@ -2301,8 +2758,8 @@ class MainWindow(QMainWindow):
                 conn = self.db.get_connection()
                 cursor = conn.cursor()
                 cursor.execute('''
-                    UPDATE stampaci SET model=?, kolicina=?, status=?, napomena=? WHERE id=?
-                ''', (data['model'], data['kolicina'], data['status'], data['napomena'], stampac_id))
+                    UPDATE stampaci SET model=?, kolicina=?, status=?, napomena=?, driver_link=? WHERE id=?
+                ''', (data['model'], data['kolicina'], data['status'], data['napomena'], data['driver_link'], stampac_id))
                 
                 # Obriši stare veze sa tonerima
                 cursor.execute("DELETE FROM stampac_toneri WHERE stampac_id = ?", (stampac_id,))
@@ -2633,12 +3090,14 @@ class MainWindow(QMainWindow):
             T.get("col_current_stock", self.lang), 
             T.get("col_for_order", self.lang)
         ])
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        table.horizontalHeader().setStretchLastSection(True)
         table.setRowCount(len(rows))
         
         for i, row in enumerate(rows):
             for j, value in enumerate(row):
-                item = QTableWidgetItem(str(value) if value else "")
+                # Prikaži 0 ako je vrednost 0, ne prazan string
+                item = QTableWidgetItem(str(value) if value is not None else "")
                 if j == 3:  # Za naručivanje kolona (sada na poziciji 3)
                     item.setBackground(QColor(255, 200, 200))
                     item.setForeground(QColor(200, 0, 0))
@@ -2667,12 +3126,695 @@ class MainWindow(QMainWindow):
         
         dialog.exec_()
     
+    def stampaj_tonere(self):
+        """Prikazuje preview svih tonera u browseru sa mogućnošću štampanja"""
+        try:
+            from datetime import datetime
+            import tempfile
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT model, minimalna_kolicina, trenutno_stanje 
+                FROM toneri 
+                ORDER BY model
+            """)
+            rows = cursor.fetchall()
+            
+            # Izračunaj ukupan zbir svih tonera
+            cursor.execute("SELECT COALESCE(SUM(trenutno_stanje), 0) FROM toneri")
+            ukupan_zbir = cursor.fetchone()[0]
+            
+            conn.close()
+            
+            if not rows:
+                QMessageBox.information(self, T.get("info", self.lang), "Nema tonera u bazi.")
+                return
+            
+            # Kreiraj HTML
+            html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>{T.get('col_toners', self.lang) if self.lang == 'sr' else 'Toners'}</title>
+                <style>
+                    body {{ 
+                        font-family: Arial, sans-serif; 
+                        margin: 40px;
+                        max-width: 1200px;
+                    }}
+                    h1 {{ 
+                        text-align: center; 
+                        color: #2C3E50; 
+                        margin-bottom: 10px;
+                        font-size: 24pt;
+                    }}
+                    .datum {{ 
+                        text-align: left; 
+                        margin-bottom: 30px;
+                        font-size: 12pt;
+                    }}
+                    table {{ 
+                        border-collapse: collapse; 
+                        width: 100%;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }}
+                    th {{ 
+                        background-color: #34495E; 
+                        color: white; 
+                        padding: 12px; 
+                        border: 1px solid #2C3E50;
+                        font-size: 12pt;
+                    }}
+                    td {{ 
+                        padding: 10px; 
+                        border: 1px solid #BDC3C7; 
+                        text-align: center;
+                        font-size: 11pt;
+                    }}
+                    tr:nth-child(even) {{ 
+                        background-color: #ECF0F1; 
+                    }}
+                    tr:hover {{
+                        background-color: #D5DBDB;
+                    }}
+                    .red {{ 
+                        background-color: #FFB6B6; 
+                        color: #C80000; 
+                        font-weight: bold;
+                    }}
+                    .footer {{ 
+                        margin-top: 20px; 
+                        font-style: italic;
+                        font-size: 11pt;
+                        text-align: center;
+                    }}
+                    .print-button {{
+                        background-color: #2196F3;
+                        color: white;
+                        padding: 15px 32px;
+                        text-align: center;
+                        font-size: 16px;
+                        margin: 20px 0;
+                        cursor: pointer;
+                        border: none;
+                        border-radius: 4px;
+                        display: block;
+                        margin-left: auto;
+                        margin-right: auto;
+                    }}
+                    .print-button:hover {{
+                        background-color: #0b7dda;
+                    }}
+                    @media print {{
+                        .print-button {{ display: none; }}
+                        body {{ margin: 20px; }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <button class="print-button" onclick="window.print()">🖨️ {T.get('preview_print_btn', self.lang)}</button>
+                
+                <h1>{'LISTA TONERA' if self.lang == 'sr' else 'TONER LIST'}</h1>
+                <p class="datum">{'Datum:' if self.lang == 'sr' else 'Date:'} {datetime.now().strftime('%d.%m.%Y.')}</p>
+                <table>
+                    <tr>
+                        <th>{'Redni broj' if self.lang == 'sr' else 'No.'}</th>
+                        <th>{T.get('col_model', self.lang)}</th>
+                        <th>{T.get('col_min_qty', self.lang)}</th>
+                        <th>{T.get('col_stock', self.lang)}</th>
+                    </tr>
+            """
+            
+            for idx, row in enumerate(rows, 1):
+                model, min_kol, trenutno = row
+                # Proveri da li je ispod minimuma
+                is_below_min = trenutno < min_kol if trenutno is not None and min_kol is not None else False
+                stanje_class = 'class="red"' if is_below_min else ''
+                
+                html += f"""
+                    <tr>
+                        <td>{idx}</td>
+                        <td>{model}</td>
+                        <td>{min_kol if min_kol is not None else '-'}</td>
+                        <td {stanje_class}>{trenutno if trenutno is not None else '0'}</td>
+                    </tr>
+                """
+            
+            html += f"""
+                </table>
+                <p class="footer">
+                    {'Različitih tonera:' if self.lang == 'sr' else 'Different toners:'} {len(rows)} | 
+                    {'Ukupno komada:' if self.lang == 'sr' else 'Total pieces:'} {ukupan_zbir}
+                </p>
+            </body>
+            </html>
+            """
+            
+            # Sačuvaj u temp fajl i otvori u browseru
+            temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8')
+            temp_file.write(html)
+            temp_file.close()
+            
+            QDesktopServices.openUrl(QUrl.fromLocalFile(temp_file.name))
+            
+        except Exception as e:
+            QMessageBox.critical(self, T.get("error", self.lang), f"{T.get('error', self.lang)}:\n{str(e)}")
+    
+    def export_tonere_excel(self):
+        """Eksportuje sve tonere u Excel"""
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from datetime import datetime
+            import os
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT model, minimalna_kolicina, trenutno_stanje 
+                FROM toneri 
+                ORDER BY model
+            """)
+            rows = cursor.fetchall()
+            
+            # Izračunaj ukupan zbir svih tonera
+            cursor.execute("SELECT COALESCE(SUM(trenutno_stanje), 0) FROM toneri")
+            ukupan_zbir = cursor.fetchone()[0]
+            
+            conn.close()
+            
+            if not rows:
+                QMessageBox.information(self, T.get("info", self.lang), "Nema tonera u bazi.")
+                return
+            
+            wb = Workbook()
+            ws = wb.active
+            ws.title = 'Lista tonera'[:31]  # Excel limit 31 chars
+            
+            # Naslov
+            ws['A1'] = 'LISTA TONERA' if self.lang == 'sr' else 'TONER LIST'
+            ws['A1'].font = Font(size=18, bold=True)
+            ws['A1'].alignment = Alignment(horizontal='center')
+            ws.merge_cells('A1:D1')
+            
+            # Datum
+            ws['A2'] = f"{'Datum:' if self.lang == 'sr' else 'Date:'} {datetime.now().strftime('%d.%m.%Y.')}"
+            ws['A2'].font = Font(size=11)
+            ws['A2'].alignment = Alignment(horizontal='left')
+            
+            # Header
+            headers = [
+                'Br.' if self.lang == 'sr' else 'No.',
+                T.get('col_model', self.lang), 
+                T.get('col_min_qty', self.lang), 
+                T.get('col_stock', self.lang)
+            ]
+            
+            thin_border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=4, column=col)
+                cell.value = header
+                cell.font = Font(bold=True, color='FFFFFF', size=12)
+                cell.fill = PatternFill(start_color='34495E', end_color='34495E', fill_type='solid')
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = thin_border
+            
+            # Data
+            for idx, row_data in enumerate(rows, 1):
+                model, min_kol, trenutno = row_data
+                
+                # Proveri da li je ispod minimuma
+                is_below_min = trenutno < min_kol if trenutno is not None and min_kol is not None else False
+                
+                # Redni broj
+                cell = ws.cell(row=idx+4, column=1)
+                cell.value = idx
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = thin_border
+                
+                # Model
+                cell = ws.cell(row=idx+4, column=2)
+                cell.value = model
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = thin_border
+                
+                # Minimalna količina
+                cell = ws.cell(row=idx+4, column=3)
+                cell.value = min_kol if min_kol is not None else '-'
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = thin_border
+                
+                # Trenutno stanje
+                cell = ws.cell(row=idx+4, column=4)
+                cell.value = trenutno if trenutno is not None else 0
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = thin_border
+                
+                # Highlight ako je ispod minimuma
+                if is_below_min:
+                    cell.fill = PatternFill(start_color='FFB6B6', end_color='FFB6B6', fill_type='solid')
+                    cell.font = Font(bold=True, color='C80000')
+            
+            # Auto width
+            for col_idx in range(1, 5):  # 4 kolone
+                max_length = 0
+                for row in ws.iter_rows(min_row=4, min_col=col_idx, max_col=col_idx):
+                    for cell in row:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                from openpyxl.utils import get_column_letter
+                ws.column_dimensions[get_column_letter(col_idx)].width = max_length + 3
+            
+            # Footer
+            footer_row = len(rows) + 6
+            if self.lang == 'sr':
+                footer_text = f"Različitih tonera: {len(rows)} | Ukupno komada: {ukupan_zbir}"
+            else:
+                footer_text = f"Different toners: {len(rows)} | Total pieces: {ukupan_zbir}"
+            ws.cell(row=footer_row, column=1).value = footer_text
+            ws.cell(row=footer_row, column=1).font = Font(italic=True, size=11)
+            
+            # Save dialog
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, 
+                T.get("btn_excel_export", self.lang), 
+                f"Lista_tonera_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                "Excel Files (*.xlsx)"
+            )
+            
+            if file_path:
+                wb.save(file_path)
+                QMessageBox.information(self, T.get("success", self.lang), 
+                    f"{'Fajl je sačuvan:' if self.lang == 'sr' else 'File saved:'}\n{file_path}")
+                
+                # Pitaj korisnika da li želi da otvori fajl
+                reply = QMessageBox.question(self, 
+                    T.get("success", self.lang),
+                    T.get("msg_open_file", self.lang) if self.lang == 'sr' else "Open file?",
+                    QMessageBox.Yes | QMessageBox.No)
+                
+                if reply == QMessageBox.Yes:
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(file_path))
+            
+        except Exception as e:
+            QMessageBox.critical(self, T.get("error", self.lang), f"{T.get('error', self.lang)}:\n{str(e)}")
+    
+    def stampaj_stampace(self):
+        """Prikazuje preview svih štampača u browseru sa mogućnošću štampanja"""
+        try:
+            from datetime import datetime
+            import tempfile
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    s.model, 
+                    COALESCE(s.kolicina, 1) as kolicina,
+                    COUNT(DISTINCT rs.radnik_id) as dodeljeno,
+                    s.status,
+                    s.napomena
+                FROM stampaci s
+                LEFT JOIN radnik_stampaci rs ON s.id = rs.stampac_id
+                GROUP BY s.id
+                ORDER BY s.model
+            """)
+            rows = cursor.fetchall()
+            
+            # Izračunaj ukupan broj štampača
+            cursor.execute("SELECT COALESCE(SUM(kolicina), 0) FROM stampaci")
+            ukupan_broj = cursor.fetchone()[0]
+            
+            conn.close()
+            
+            if not rows:
+                QMessageBox.information(self, T.get("info", self.lang), "Nema štampača u bazi.")
+                return
+            
+            # Kreiraj HTML
+            html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>{'LISTA ŠTAMPAČA' if self.lang == 'sr' else 'PRINTER LIST'}</title>
+                <style>
+                    body {{ 
+                        font-family: Arial, sans-serif; 
+                        margin: 40px;
+                        max-width: 1400px;
+                    }}
+                    h1 {{ 
+                        text-align: center; 
+                        color: #2C3E50; 
+                        margin-bottom: 10px;
+                        font-size: 24pt;
+                    }}
+                    .datum {{ 
+                        text-align: left; 
+                        margin-bottom: 30px;
+                        font-size: 12pt;
+                    }}
+                    table {{ 
+                        border-collapse: collapse; 
+                        width: 100%;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }}
+                    th {{ 
+                        background-color: #34495E; 
+                        color: white; 
+                        padding: 12px; 
+                        border: 1px solid #2C3E50;
+                        font-size: 11pt;
+                    }}
+                    td {{ 
+                        padding: 10px; 
+                        border: 1px solid #BDC3C7; 
+                        text-align: center;
+                        font-size: 10pt;
+                    }}
+                    tr:nth-child(even) {{ 
+                        background-color: #ECF0F1; 
+                    }}
+                    tr:hover {{
+                        background-color: #D5DBDB;
+                    }}
+                    .green {{ 
+                        background-color: #C8E6C9; 
+                        color: #2E7D32; 
+                        font-weight: bold;
+                    }}
+                    .red {{ 
+                        background-color: #FFCDD2; 
+                        color: #C62828; 
+                        font-weight: bold;
+                    }}
+                    .yellow {{ 
+                        background-color: #FFF9C4; 
+                        color: #F57F17; 
+                        font-weight: bold;
+                    }}
+                    .footer {{ 
+                        margin-top: 20px; 
+                        font-style: italic;
+                        font-size: 11pt;
+                        text-align: center;
+                    }}
+                    .print-button {{
+                        background-color: #2196F3;
+                        color: white;
+                        padding: 15px 32px;
+                        text-align: center;
+                        font-size: 16px;
+                        margin: 20px 0;
+                        cursor: pointer;
+                        border: none;
+                        border-radius: 4px;
+                        display: block;
+                        margin-left: auto;
+                        margin-right: auto;
+                    }}
+                    .print-button:hover {{
+                        background-color: #0b7dda;
+                    }}
+                    @media print {{
+                        .print-button {{ display: none; }}
+                        body {{ margin: 20px; }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <button class="print-button" onclick="window.print()">🖨️ {T.get('preview_print_btn', self.lang)}</button>
+                
+                <h1>{'LISTA ŠTAMPAČA' if self.lang == 'sr' else 'PRINTER LIST'}</h1>
+                <p class="datum">{'Datum:' if self.lang == 'sr' else 'Date:'} {datetime.now().strftime('%d.%m.%Y.')}</p>
+                <table>
+                    <tr>
+                        <th>{'Br.' if self.lang == 'sr' else 'No.'}</th>
+                        <th>{T.get('col_model', self.lang)}</th>
+                        <th>{T.get('col_quantity', self.lang)}</th>
+                        <th>{T.get('col_assigned', self.lang)}</th>
+                        <th>{T.get('col_available', self.lang)}</th>
+                        <th>{T.get('col_status', self.lang)}</th>
+                        <th>{T.get('col_notes', self.lang)}</th>
+                    </tr>
+            """
+            
+            for idx, row in enumerate(rows, 1):
+                model, kolicina, dodeljeno, status, napomena = row
+                slobodno = kolicina - dodeljeno
+                
+                # Status translation
+                status_map = {
+                    'Aktivan': T.get('status_active', self.lang),
+                    'Na servisu': T.get('status_in_service', self.lang),
+                    'Za rashod': T.get('status_for_disposal', self.lang)
+                }
+                display_status = status_map.get(status, status)
+                
+                # Color for Slobodno
+                slobodno_class = ''
+                if slobodno > 0:
+                    slobodno_class = 'class="green"'
+                elif slobodno == 0:
+                    slobodno_class = 'class="red"'
+                
+                # Color for Status
+                status_class = ''
+                if status == "Na servisu":
+                    status_class = 'class="yellow"'
+                elif status == "Za rashod":
+                    status_class = 'class="red"'
+                
+                html += f"""
+                    <tr>
+                        <td>{idx}</td>
+                        <td>{model}</td>
+                        <td>{kolicina}</td>
+                        <td>{dodeljeno}</td>
+                        <td {slobodno_class}>{slobodno}</td>
+                        <td {status_class}>{display_status}</td>
+                        <td style="text-align: left;">{napomena if napomena else '-'}</td>
+                    </tr>
+                """
+            
+            html += f"""
+                </table>
+                <p class="footer">
+                    {'Različitih štampača:' if self.lang == 'sr' else 'Different printers:'} {len(rows)} | 
+                    {'Ukupno komada:' if self.lang == 'sr' else 'Total pieces:'} {ukupan_broj}
+                </p>
+            </body>
+            </html>
+            """
+            
+            # Sačuvaj u temp fajl i otvori u browseru
+            temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8')
+            temp_file.write(html)
+            temp_file.close()
+            
+            QDesktopServices.openUrl(QUrl.fromLocalFile(temp_file.name))
+            
+        except Exception as e:
+            QMessageBox.critical(self, T.get("error", self.lang), f"{T.get('error', self.lang)}:\n{str(e)}")
+    
+    def export_stampace_excel(self):
+        """Eksportuje sve štampače u Excel"""
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from datetime import datetime
+            
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    s.model, 
+                    COALESCE(s.kolicina, 1) as kolicina,
+                    COUNT(DISTINCT rs.radnik_id) as dodeljeno,
+                    s.status,
+                    s.napomena
+                FROM stampaci s
+                LEFT JOIN radnik_stampaci rs ON s.id = rs.stampac_id
+                GROUP BY s.id
+                ORDER BY s.model
+            """)
+            rows = cursor.fetchall()
+            
+            # Izračunaj ukupan broj štampača
+            cursor.execute("SELECT COALESCE(SUM(kolicina), 0) FROM stampaci")
+            ukupan_broj = cursor.fetchone()[0]
+            
+            conn.close()
+            
+            if not rows:
+                QMessageBox.information(self, T.get("info", self.lang), "Nema štampača u bazi.")
+                return
+            
+            wb = Workbook()
+            ws = wb.active
+            ws.title = 'Lista štampača'[:31]
+            
+            # Naslov
+            ws['A1'] = 'LISTA ŠTAMPAČA' if self.lang == 'sr' else 'PRINTER LIST'
+            ws['A1'].font = Font(size=18, bold=True)
+            ws['A1'].alignment = Alignment(horizontal='center')
+            ws.merge_cells('A1:G1')
+            
+            # Datum
+            ws['A2'] = f"{'Datum:' if self.lang == 'sr' else 'Date:'} {datetime.now().strftime('%d.%m.%Y.')}"
+            ws['A2'].font = Font(size=11)
+            
+            # Headers
+            headers = [
+                'Br.' if self.lang == 'sr' else 'No.',
+                T.get('col_model', self.lang),
+                T.get('col_quantity', self.lang),
+                T.get('col_assigned', self.lang),
+                T.get('col_available', self.lang),
+                T.get('col_status', self.lang),
+                T.get('col_notes', self.lang)
+            ]
+            
+            thin_border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=4, column=col)
+                cell.value = header
+                cell.font = Font(bold=True, color='FFFFFF', size=12)
+                cell.fill = PatternFill(start_color='34495E', end_color='34495E', fill_type='solid')
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = thin_border
+            
+            # Data
+            for idx, row_data in enumerate(rows, 1):
+                model, kolicina, dodeljeno, status, napomena = row_data
+                slobodno = kolicina - dodeljeno
+                
+                # Status translation
+                status_map = {
+                    'Aktivan': T.get('status_active', self.lang),
+                    'Na servisu': T.get('status_in_service', self.lang),
+                    'Za rashod': T.get('status_for_disposal', self.lang)
+                }
+                display_status = status_map.get(status, status)
+                
+                # Redni broj
+                cell = ws.cell(row=idx+4, column=1)
+                cell.value = idx
+                cell.alignment = Alignment(horizontal='center')
+                cell.border = thin_border
+                
+                # Model
+                cell = ws.cell(row=idx+4, column=2)
+                cell.value = model
+                cell.alignment = Alignment(horizontal='center')
+                cell.border = thin_border
+                
+                # Količina
+                cell = ws.cell(row=idx+4, column=3)
+                cell.value = kolicina
+                cell.alignment = Alignment(horizontal='center')
+                cell.border = thin_border
+                
+                # Dodeljeno
+                cell = ws.cell(row=idx+4, column=4)
+                cell.value = dodeljeno
+                cell.alignment = Alignment(horizontal='center')
+                cell.border = thin_border
+                
+                # Slobodno
+                cell = ws.cell(row=idx+4, column=5)
+                cell.value = slobodno
+                cell.alignment = Alignment(horizontal='center')
+                cell.border = thin_border
+                if slobodno > 0:
+                    cell.fill = PatternFill(start_color='C8E6C9', end_color='C8E6C9', fill_type='solid')
+                    cell.font = Font(bold=True, color='2E7D32')
+                elif slobodno == 0:
+                    cell.fill = PatternFill(start_color='FFCDD2', end_color='FFCDD2', fill_type='solid')
+                    cell.font = Font(bold=True, color='C62828')
+                
+                # Status
+                cell = ws.cell(row=idx+4, column=6)
+                cell.value = display_status
+                cell.alignment = Alignment(horizontal='center')
+                cell.border = thin_border
+                if status == "Na servisu":
+                    cell.fill = PatternFill(start_color='FFF9C4', end_color='FFF9C4', fill_type='solid')
+                    cell.font = Font(bold=True, color='F57F17')
+                elif status == "Za rashod":
+                    cell.fill = PatternFill(start_color='FFCDD2', end_color='FFCDD2', fill_type='solid')
+                    cell.font = Font(bold=True, color='C62828')
+                
+                # Napomena
+                cell = ws.cell(row=idx+4, column=7)
+                cell.value = napomena if napomena else '-'
+                cell.alignment = Alignment(horizontal='left')
+                cell.border = thin_border
+            
+            # Auto width
+            for col_idx in range(1, 8):
+                max_length = 0
+                for row in ws.iter_rows(min_row=4, min_col=col_idx, max_col=col_idx):
+                    for cell in row:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                from openpyxl.utils import get_column_letter
+                ws.column_dimensions[get_column_letter(col_idx)].width = max_length + 3
+            
+            # Footer
+            footer_row = len(rows) + 6
+            if self.lang == 'sr':
+                footer_text = f"Različitih štampača: {len(rows)} | Ukupno komada: {ukupan_broj}"
+            else:
+                footer_text = f"Different printers: {len(rows)} | Total pieces: {ukupan_broj}"
+            ws.cell(row=footer_row, column=1).value = footer_text
+            ws.cell(row=footer_row, column=1).font = Font(italic=True, size=11)
+            
+            # Save dialog
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                T.get("btn_excel_export", self.lang),
+                f"Lista_stampaca_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                "Excel Files (*.xlsx)"
+            )
+            
+            if file_path:
+                wb.save(file_path)
+                QMessageBox.information(self, T.get("success", self.lang),
+                    f"{'Fajl je sačuvan:' if self.lang == 'sr' else 'File saved:'}\n{file_path}")
+                
+                # Pitaj korisnika da li želi da otvori fajl
+                reply = QMessageBox.question(self,
+                    T.get("success", self.lang),
+                    T.get("msg_open_file", self.lang) if self.lang == 'sr' else "Open file?",
+                    QMessageBox.Yes | QMessageBox.No)
+                
+                if reply == QMessageBox.Yes:
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(file_path))
+            
+        except Exception as e:
+            QMessageBox.critical(self, T.get("error", self.lang), f"{T.get('error', self.lang)}:\n{str(e)}")
+    
     def preview_narudzbu(self, rows):
         """Prikazuje preview narudžbine u browseru"""
         try:
             from datetime import datetime
             import tempfile
-            import webbrowser
             import os
             
             # Kreiraj HTML sa prevodima
@@ -2791,7 +3933,7 @@ class MainWindow(QMainWindow):
             temp_file.write(html)
             temp_file.close()
             
-            webbrowser.open('file://' + temp_file.name)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(temp_file.name))
             
         except Exception as e:
             QMessageBox.critical(self, T.get("error", self.lang), f"{T.get('error', self.lang)}:\n{str(e)}")
@@ -2875,7 +4017,6 @@ class MainWindow(QMainWindow):
         try:
             from datetime import datetime
             import tempfile
-            import webbrowser
             
             conn = self.db.get_connection()
             cursor = conn.cursor()
@@ -3011,7 +4152,7 @@ class MainWindow(QMainWindow):
             temp_file.write(html)
             temp_file.close()
             
-            webbrowser.open('file://' + temp_file.name)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(temp_file.name))
                 
         except Exception as e:
             QMessageBox.critical(self, T.get("error", self.lang), f"Greška prilikom preview-a:\n{str(e)}")
@@ -3318,185 +4459,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-    def export_narudzbu_excel(self, rows):
-        """Eksportuje narudžbinu u Excel"""
-        try:
-            from openpyxl import Workbook
-            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-            from datetime import datetime
-            import os
-            
-            wb = Workbook()
-            ws = wb.active
-            ws.title = T.get("manual_order_note", self.lang) if hasattr(self, "lang") else "Narudžbina"
-            
-            # Naslov
-            ws['A1'] = 'LISTA ZA NARUČIVANJE TONERA'
-            ws['A1'].font = Font(size=16, bold=True)
-            ws['A1'].alignment = Alignment(horizontal='center')
-            ws.merge_cells('A1:D1')
-            
-            # Datum
-            ws['A2'] = f"Datum: {datetime.now().strftime('%d.%m.%Y.')}"
-            ws['A2'].font = Font(size=11)
-            
-            # Header
-            headers = ['Model', 'Min. količina', 'Trenutno', 'Za naručivanje']
-            for col, header in enumerate(headers, 1):
-                cell = ws.cell(row=4, column=col)
-                cell.value = header
-                cell.font = Font(bold=True, color='FFFFFF')
-                cell.fill = PatternFill(start_color='34495E', end_color='34495E', fill_type='solid')
-                cell.alignment = Alignment(horizontal='center')
-            
-            # Data
-            for row_idx, row_data in enumerate(rows, 5):
-                for col_idx, value in enumerate(row_data, 1):
-                    cell = ws.cell(row=row_idx, column=col_idx)
-                    cell.value = value
-                    cell.alignment = Alignment(horizontal='center')
-                    
-                    # Highlight za naručivanje kolona
-                    if col_idx == 4:
-                        cell.fill = PatternFill(start_color='FFB6B6', end_color='FFB6B6', fill_type='solid')
-                        cell.font = Font(bold=True, color='C80000')
-            
-            # Auto width
-            for col_idx in range(1, 5):  # 4 kolone
-                max_length = 0
-                for row in ws.iter_rows(min_row=4, min_col=col_idx, max_col=col_idx):
-                    for cell in row:
-                        if cell.value:
-                            max_length = max(max_length, len(str(cell.value)))
-                from openpyxl.utils import get_column_letter
-                ws.column_dimensions[get_column_letter(col_idx)].width = max_length + 2
-            
-            # Footer
-            footer_row = len(rows) + 6
-            ws.cell(row=footer_row, column=1).value = f"Ukupno stavki: {len(rows)}"
-            ws.cell(row=footer_row, column=1).font = Font(italic=True)
-            
-            # Save
-            filename = f"Narudzbina_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            filepath = os.path.join(os.getcwd(), filename)
-            wb.save(filepath)
-            
-            QMessageBox.information(self, T.get("success", self.lang), T.get("msg_excel_created", self.lang) + "\n\n" + T.get("msg_file", self.lang) + " " + filename)
-            
-            # Otvori fajl
-            import subprocess
-            import platform
-            if platform.system() == 'Windows':
-                os.startfile(filepath)
-            elif platform.system() == 'Darwin':
-                subprocess.Popen(['open', filepath])
-            else:
-                subprocess.Popen(['xdg-open', filepath])
-                
-        except ImportError:
-            QMessageBox.warning(self, T.get("error", self.lang), T.get("error_install_openpyxl", self.lang))
-        except Exception as e:
-            QMessageBox.critical(self, T.get("error", self.lang), f"Greška prilikom kreiranja Excel-a:\n{str(e)}")
-    
-    def export_pregled_excel(self):
-        """Eksportuje pregled u Excel"""
-        try:
-            from openpyxl import Workbook
-            from openpyxl.styles import Font, PatternFill, Alignment
-            from datetime import datetime
-            import os
-            
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT 
-                    r.ime || ' ' || r.prezime as radnik,
-                    s.model as stampac_model,
-                    s.status,
-                    GROUP_CONCAT(t.model, ', ') as toneri
-                FROM radnici r
-                LEFT JOIN radnik_stampaci rs ON r.id = rs.radnik_id
-                LEFT JOIN stampaci s ON rs.stampac_id = s.id
-                LEFT JOIN stampac_toneri st ON s.id = st.stampac_id
-                LEFT JOIN toneri t ON st.toner_id = t.id
-                WHERE s.id IS NOT NULL
-                GROUP BY r.id, s.id
-                ORDER BY r.prezime, r.ime, s.model
-            """)
-            
-            rows = cursor.fetchall()
-            conn.close()
-            
-            if not rows:
-                QMessageBox.information(self, T.get("info", self.lang), T.get("error_no_export_data", self.lang))
-                return
-            
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Pregled"
-            
-            # Naslov
-            ws['A1'] = 'PREGLED ŠTAMPAČA I TONERA PO RADNICIMA'
-            ws['A1'].font = Font(size=16, bold=True)
-            ws['A1'].alignment = Alignment(horizontal='center')
-            ws.merge_cells('A1:D1')
-            
-            # Datum
-            ws['A2'] = f"Datum: {datetime.now().strftime('%d.%m.%Y.')}"
-            ws['A2'].font = Font(size=11)
-            
-            # Header
-            headers = ['Radnik', 'Štampač', 'Status', 'Toneri']
-            for col, header in enumerate(headers, 1):
-                cell = ws.cell(row=4, column=col)
-                cell.value = header
-                cell.font = Font(bold=True, color='FFFFFF')
-                cell.fill = PatternFill(start_color='34495E', end_color='34495E', fill_type='solid')
-                cell.alignment = Alignment(horizontal='center')
-            
-            # Data
-            for row_idx, row_data in enumerate(rows, 5):
-                for col_idx, value in enumerate(row_data, 1):
-                    cell = ws.cell(row=row_idx, column=col_idx)
-                    cell.value = value if value else '-'
-                    cell.alignment = Alignment(horizontal='left' if col_idx in [1, 4] else 'center')
-            
-            # Auto width
-            for col_idx in range(1, 5):  # 4 kolone
-                max_length = 0
-                for row in ws.iter_rows(min_row=4, min_col=col_idx, max_col=col_idx):
-                    for cell in row:
-                        if cell.value:
-                            max_length = max(max_length, len(str(cell.value)))
-                from openpyxl.utils import get_column_letter
-                ws.column_dimensions[get_column_letter(col_idx)].width = min(max_length + 2, 50)
-            
-            # Footer
-            footer_row = len(rows) + 6
-            ws.cell(row=footer_row, column=1).value = f"{T.get('preview_total', self.lang).format(len(rows))}"
-            ws.cell(row=footer_row, column=1).font = Font(italic=True)
-            
-            # Save
-            filename = f"Pregled_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            filepath = os.path.join(os.getcwd(), filename)
-            wb.save(filepath)
-            
-            QMessageBox.information(self, T.get("success", self.lang), T.get("msg_excel_created", self.lang) + "\n\n" + T.get("msg_file", self.lang) + " " + filename)
-            
-            # Otvori fajl
-            import subprocess
-            import platform
-            if platform.system() == 'Windows':
-                os.startfile(filepath)
-            elif platform.system() == 'Darwin':
-                subprocess.Popen(['open', filepath])
-            else:
-                subprocess.Popen(['xdg-open', filepath])
-                
-        except ImportError:
-            QMessageBox.warning(self, T.get("error", self.lang), T.get("error_install_openpyxl", self.lang))
-        except Exception as e:
-            QMessageBox.critical(self, T.get("error", self.lang), f"Greška prilikom kreiranja Excel-a:\n{str(e)}")
-

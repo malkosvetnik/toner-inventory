@@ -1,264 +1,273 @@
-# 🖨️ Toner Inventory System
+# 📦 Toner Inventory System
 
-**Professional desktop application for managing printer toners, printers, and employee assignments.**
+Professional desktop application for managing printer toners, printers, and employee assignments in companies.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![PyQt5](https://img.shields.io/badge/GUI-PyQt5-green.svg)](https://pypi.org/project/PyQt5/)
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![PyQt5](https://img.shields.io/badge/PyQt5-5.15+-green.svg)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)
 
----
+## 🌟 Features
+
+### Core Functionality
+- ✅ **Toner Management** - Track all toner models, quantities, and minimum stock levels
+- ✅ **Printer Management** - Manage printers with status tracking (Active/In Service/For Disposal)
+- ✅ **Employee Management** - Assign printers to employees and track assignments
+- ✅ **Automatic Reorder Alerts** - Get notified when toner stock falls below minimum
+- ✅ **Consumption Tracking** - Record and track toner usage history
+- ✅ **Dual Language Support** - Serbian and English interface
+
+### Real-Time Monitoring
+- 📊 **Live Stock Counter** - Real-time display of total toners and printers
+- 🔄 **Auto-Update** - All counts update instantly on any change
+- 🎯 **Color-Coded Status** - Visual indicators for stock levels and printer status
+
+### Export & Print
+- 📄 **Print Preview** - HTML preview with print button for all reports
+- 📊 **Excel Export** - Export to professionally formatted Excel files
+- 📋 **Multiple Reports** - Toners, Printers, Overview, Order Lists, and History
+
+### User Experience
+- 🔍 **Advanced Search** - Real-time search across all tables with highlighting
+- 📏 **Resizable Columns** - Adjust column widths (automatically saved)
+- 🎨 **Color Coding** - Red for low stock, green for available, yellow for in-service
+- 💾 **Backup & Restore** - Built-in database backup and restore functionality
 
 ## 📸 Screenshots
 
-### Toner Management
-![Toner Management](screenshots/01-toner-management.png)
-*Track toner stock levels with automatic reordering alerts*
+### Toners Tab - Real-Time Stock Monitoring
+![Toners Tab](screenshots/01_toners_tab.png)
+*Manage all toner models with live stock counter and order list*
 
-### Printer Inventory
-![Printer Inventory](screenshots/02-printer-inventory.png)
-*Manage printer quantities, assignments, and availability*
+### Printers Tab - Printer Management
+![Printers Tab](screenshots/02_printers_tab.png)
+*Track printers with status, quantity, and real-time availability*
 
-### Dual Language Support
-![English Version](screenshots/03-printer-inventory-english.png)
-*Full Serbian and English language support*
+### Employees Tab
+![Employees Tab](screenshots/03_employees_tab.png)
+*Manage employees and their printer assignments*
 
-### Statistics & Reports
-![Statistics](screenshots/04-statistics.png)
-*Monthly and yearly consumption statistics*
+### Overview Tab - Complete Overview
+![Overview Tab](screenshots/04_overview_tab.png)
+*Complete overview of employee-printer-toner relationships*
+
+### Statistics Tab
+![Statistics Tab](screenshots/05_statistics_tab.png)
+*Toner consumption statistics and analytics*
 
 ### Order History
-![History](screenshots/05-history.png)
-*Track all orders with flexible filtering*
+![History Tab](screenshots/06_history_tab.png)
+*Track all order history with filtering by date*
 
 ### Backup & Restore
-![Backup](screenshots/06-backup.png)
-*Automatic and manual backup system*
+![Backup Tab](screenshots/07_backup_tab.png)
+*Built-in backup and restore functionality*
 
-### Employee Management
-![Employees](screenshots/07-employees.png)
-*Track printer assignments per employee*
+## 🚀 Installation
 
-### Order List (English)
-![Order List](screenshots/08-order-list-english.png)
-*Smart ordering system with export options*
+### Windows
 
----
+1. **Download the latest release**
+   ```
+   Download toner_app_v2.0.exe from the releases page
+   ```
 
-## ✨ Features
+2. **Run the application**
+   - Double-click `toner_app_v2.0.exe`
+   - No installation required!
 
-### 📦 **Toner Management**
-- Track stock levels and minimum quantities
-- Automatic reordering alerts when below minimum
-- Quick stock reduction (inline editing)
-- Excel & HTML export for order lists
-- Driver link storage for easy access
+### From Source (Windows/Linux)
 
-### 🖨️ **Printer Inventory**
-- **Quantity tracking** - Know exactly how many printers you have
-- **Assignment management** - Track which employees have which printers
-- **Availability monitoring** - See available vs. assigned counts at a glance
-- **Smart validation** - Prevents over-assigning printers
-- **Status tracking** - Active, In Service, For Disposal
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/malkosvetnik/toner-inventory.git
+   cd toner-inventory
+   ```
 
-### 👥 **Employee Management**
-- Assign printers to employees
-- Track printer assignments per employee
-- Automatic validation (can't assign unavailable printers)
+2. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### 📊 **Statistics & Reporting**
-- Monthly consumption reports
-- Yearly consumption trends
-- Top toners by stock/consumption
-- Export to Excel or HTML
+3. **Run the application**
+   ```bash
+   python toner_app_multilang.py
+   ```
 
-### 📜 **Order History**
-- Track all toner orders with timestamps
-- Filter by year and month
-- Automatic cleanup (keeps 2 years of history)
-- Manual order entry
+## 📖 Usage Guide
 
-### 💾 **Backup & Restore**
-- **Automatic backups** - Schedule monthly backups
-- **Manual backups** - Create backup anytime
-- **Easy restore** - Restore from any backup file
-- Safe restore process with pre-restore backup
+### First Time Setup
 
-### 🔍 **Smart Search**
-- Real-time search across all tabs
-- Highlighting of matching results
-- Tab indicators for matches
+1. **Launch the application**
+2. **Add toners** - Click "Add Toner" and enter toner model, minimum quantity, and current stock
+3. **Add printers** - Click "Add Printer" and specify printer model and quantity
+4. **Link toners to printers** - Edit printer and select compatible toners
+5. **Add employees** - Add employees and assign printers to them
 
-### 🌐 **Dual Language**
-- **Serbian (Српски)** - Full interface
-- **English** - Complete translation
-- Switch languages instantly
+### Daily Operations
 
----
+#### Check Stock Levels
+- View the **📦 Total toners** counter for total stock
+- Red highlighted rows indicate toners below minimum
+- Click **📋 ORDER LIST** for automatic order list
 
-## 🚀 Quick Start
+#### Record Toner Consumption
+- Click **Record Consumption**
+- Select toner and enter quantity used
+- History is automatically tracked
 
-### Option 1: Executable (Windows - Easiest)
+#### Export Reports
+- **Print**: Click 🖨️ **Preview_Print** for HTML preview
+- **Excel**: Click 📊 **Excel Export** to save as .xlsx file
 
-1. Download the latest `TonerInventory.exe` from [Releases](../../releases)
-2. Run it - **no installation needed!**
-3. Start managing your inventory
+#### Search
+- Use the search box at the top
+- Search works across all tabs simultaneously
+- Results are highlighted in green
 
-### Option 2: Run from Source (Cross-platform)
+### Backup & Restore
 
-```bash
-# 1. Install dependencies
-pip install PyQt5 openpyxl
+#### Create Backup
+1. Go to **BACKUP** tab
+2. Click **Create Backup Now**
+3. Choose location to save `.db` file
 
-# 2. Run the application
-python toner_app_multilang.py
-```
+#### Restore from Backup
+1. Go to **BACKUP** tab
+2. Click **Restore from Backup**
+3. Select previously saved `.db` file
 
-### Option 3: Build Your Own EXE
+## 🛠️ Technical Details
 
-```bash
-# 1. Install PyInstaller
-pip install pyinstaller
-
-# 2. Run build script
-python build_exe.py
-
-# 3. Find executable in dist/ folder
-```
-
-See [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md) for detailed build instructions.
-
----
-
-## 🛠️ Tech Stack
-
-- **Python 3.8+** - Core language
-- **PyQt5** - Desktop GUI framework
-- **SQLite** - Embedded database
+### Built With
+- **Python 3.8+** - Programming language
+- **PyQt5** - GUI framework
+- **SQLite3** - Database
 - **openpyxl** - Excel file generation
-- **PyInstaller** - EXE packaging
 
----
+### Database Schema
 
-## 📦 Use Cases
+```sql
+-- Toners
+CREATE TABLE toneri (
+    id INTEGER PRIMARY KEY,
+    model TEXT NOT NULL,
+    minimalna_kolicina INTEGER,
+    trenutno_stanje INTEGER
+);
 
-Perfect for:
-- 🏢 Small/medium businesses
-- 🏫 Schools & universities
-- 🏥 Hospitals & clinics
-- 🏭 Manufacturing facilities
-- 💼 IT support teams
-- 📚 Libraries with print services
+-- Printers
+CREATE TABLE stampaci (
+    id INTEGER PRIMARY KEY,
+    model TEXT NOT NULL,
+    kolicina INTEGER DEFAULT 1,
+    status TEXT DEFAULT 'Aktivan',
+    napomena TEXT,
+    driver_link TEXT
+);
 
----
+-- Employees
+CREATE TABLE radnici (
+    id INTEGER PRIMARY KEY,
+    ime TEXT NOT NULL,
+    prezime TEXT NOT NULL
+);
 
-## 🌟 Why This Project?
+-- Relationships
+CREATE TABLE stampac_toneri (
+    stampac_id INTEGER,
+    toner_id INTEGER,
+    FOREIGN KEY (stampac_id) REFERENCES stampaci(id),
+    FOREIGN KEY (toner_id) REFERENCES toneri(id)
+);
 
-Most inventory systems are:
-- ❌ Web-based (complex setup, requires server)
-- ❌ Too generic (not optimized for IT assets)
-- ❌ English-only
-- ❌ Expensive commercial software
+CREATE TABLE radnik_stampaci (
+    radnik_id INTEGER,
+    stampac_id INTEGER,
+    FOREIGN KEY (radnik_id) REFERENCES radnici(id),
+    FOREIGN KEY (stampac_id) REFERENCES stampaci(id)
+);
+```
 
-**This project is:**
-- ✅ Desktop app (zero configuration)
-- ✅ IT-focused (printers/toners specific)
-- ✅ Bilingual (Serbian/English)
-- ✅ Free & Open Source
-- ✅ Production-ready
+### System Requirements
 
----
+**Minimum:**
+- Windows 7/10/11 or Linux
+- 2GB RAM
+- 50MB disk space
 
-## 📖 Documentation
+**Recommended:**
+- Windows 10/11 or Ubuntu 20.04+
+- 4GB RAM
+- 100MB disk space
 
-- [Quick Start Guide](QUICK_START.md) - Get started in 5 minutes
-- [Build Instructions](BUILD_INSTRUCTIONS.md) - Create your own EXE
-- [Changelog](CHANGELOG.md) - Version history
+## 🔄 Version History
 
----
+### Version 2.0.0 (2026-01-26)
+**Major Update - Feature-Rich Release**
+
+#### New Features
+- ✨ Real-time stock counters for toners and printers
+- ✨ Print and Excel export for Toners and Printers tabs
+- ✨ Resizable columns with automatic save/restore
+- ✨ Search functionality in edit dialogs
+- ✨ Comprehensive overview tab showing all relationships
+
+#### Improvements
+- 🔧 Fixed status combobox unlimited change bug
+- 🔧 Fixed search highlighting consistency
+- 🔧 Display "0" instead of empty field in order lists
+- 🔧 Show all records in Overview tab with red indicators for missing data
+- 🔧 Enhanced export reports with dual counters (different models + total pieces)
+
+#### Technical
+- 📦 Added QSettings for persistent column widths
+- 📊 SQL-based real-time calculations
+- 🎨 Consistent color coding across all views
+
+### Version 1.0.0 (Initial Release)
+- Basic toner and printer management
+- Employee assignments
+- Order list generation
+- Backup functionality
 
 ## 🤝 Contributing
 
-Contributions are welcome! Here's how:
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
-
-**Ideas for contributions:**
-- 🌍 Additional language translations
-- 📊 More statistics/charts
-- 📱 Mobile-friendly version
-- 🔔 Email notifications
-- ☁️ Cloud backup integration
-
----
-
-## 🐛 Bug Reports
-
-Found a bug? [Open an issue](../../issues/new) with:
-1. Description of the problem
-2. Steps to reproduce
-3. Expected behavior
-4. Screenshots (if applicable)
-
----
-
-## 💬 Support & Questions
-
-- 💡 Have a question? [Start a discussion](../../discussions)
-- 🐛 Found a bug? [Open an issue](../../issues)
-- ⭐ Like the project? Star it!
-
----
 
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-**TL;DR:** Free to use, modify, and distribute!
+## 👤 Author
 
----
+**Igor Davidović**
 
-## 🎯 Roadmap
-
-Future features under consideration:
-- [ ] Dark mode theme
-- [ ] Barcode/QR code scanning
-- [ ] Cost tracking per toner
-- [ ] Supplier management
-- [ ] Email notifications for low stock
-- [ ] Web API for integrations
-- [ ] Multi-user support with roles
-
----
+- GitHub: [@malkosvetnik](https://github.com/malkosvetnik)
 
 ## 🙏 Acknowledgments
 
-- Built with [PyQt5](https://www.riverbankcomputing.com/software/pyqt/)
-- Icons from the application's custom icon set
-- Inspired by real-world IT inventory needs
+- Thanks to all companies testing this application
+- Built with ❤️ for warehouse and office management
+- Special thanks to the PyQt5 community
+
+## 📧 Support
+
+For support, please open an issue on GitHub or contact via email.
+
+## 🌍 Language Support
+
+- 🇷🇸 **Srpski** (Serbian) - Default
+- 🇬🇧 **English**
+
+Switch language from the menu: **Language**
 
 ---
 
-## 👨‍💻 Author
-
-**malkosvetnik**
-
-- GitHub: [@malkosvetnik](https://github.com/malkosvetnik)
-- Project Link: [Toner Inventory System](https://github.com/malkosvetnik/toner-inventory)
-
----
-
-## ⭐ Show Your Support
-
-If this project helped you, please consider:
-- ⭐ Starring the repository
-- 🐛 Reporting bugs
-- 💡 Suggesting features
-- 🤝 Contributing code
-
----
-
-**Made with ❤️ for IT departments everywhere**
+**Perfect for companies with 10-500+ printers** | **Save time on printer management** | **Never run out of toner again**

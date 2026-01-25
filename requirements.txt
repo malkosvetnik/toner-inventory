@@ -1,0 +1,14 @@
+# Toner Inventory System - Python Dependencies
+# Version 2.0.0
+
+# GUI Framework
+PyQt5>=5.15.0
+
+# Excel file generation
+openpyxl>=3.0.0
+
+# Database (built-in with Python, listed for documentation)
+# sqlite3 - included in Python standard library
+
+# Note: For building standalone executables, use:
+# pyinstaller>=5.0.0

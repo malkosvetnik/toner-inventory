@@ -1,166 +1,81 @@
 # Contributing to Toner Inventory System
 
-First off, thank you for considering contributing to Toner Inventory System! 🎉
+Thank you for your interest in contributing! 🎉
 
-## How Can I Contribute?
+## How to Contribute
 
-### 🐛 Reporting Bugs
+### Reporting Bugs
 
-Before creating bug reports, please check the [existing issues](../../issues) to avoid duplicates.
+If you find a bug, please open an issue with:
+- **Clear title** describing the problem
+- **Steps to reproduce** the bug
+- **Expected behavior** vs **actual behavior**
+- **Screenshots** if applicable
+- **Environment** (OS, Python version)
 
-When creating a bug report, include:
-- **Description**: Clear description of the problem
-- **Steps to reproduce**: Numbered steps to reproduce the behavior
-- **Expected behavior**: What you expected to happen
-- **Actual behavior**: What actually happened
-- **Screenshots**: If applicable
-- **Environment**: 
-  - OS (Windows 10/11, Linux distro, etc.)
-  - Python version (if running from source)
-  - App version
+### Suggesting Features
 
-### 💡 Suggesting Enhancements
+Feature requests are welcome! Please:
+- Check if the feature is already requested
+- Clearly describe the feature and its benefits
+- Explain your use case
 
-Enhancement suggestions are tracked as [GitHub issues](../../issues).
-
-When creating an enhancement suggestion, include:
-- **Clear title**: Describe the enhancement in the title
-- **Detailed description**: Explain the feature and its benefits
-- **Use cases**: Provide examples of how it would be used
-- **Alternatives**: Describe alternatives you've considered
-
-### 🔧 Pull Requests
+### Pull Requests
 
 1. **Fork** the repository
-2. **Create a branch** from `main`:
-   ```bash
-   git checkout -b feature/amazing-feature
-   ```
-3. **Make your changes**
-4. **Test thoroughly** - make sure nothing breaks
-5. **Commit** with clear messages:
-   ```bash
-   git commit -m "Add amazing feature"
-   ```
-6. **Push** to your fork:
-   ```bash
-   git push origin feature/amazing-feature
-   ```
-7. **Open a Pull Request** with:
-   - Clear title describing the change
-   - Description of what changed and why
-   - Screenshots (if UI changes)
-   - Link to related issue (if applicable)
+2. **Create a branch** for your feature (`git checkout -b feature/amazing-feature`)
+3. **Make your changes** following the code style
+4. **Test thoroughly** - ensure nothing breaks
+5. **Commit** with clear messages (`git commit -m 'Add amazing feature'`)
+6. **Push** to your branch (`git push origin feature/amazing-feature`)
+7. **Open a Pull Request** with detailed description
 
-## Development Guidelines
+## Development Setup
 
-### Code Style
+```bash
+# Clone your fork
+git clone https://github.com/malkosvetnik/toner-inventory.git
+cd toner-inventory
 
-- Follow [PEP 8](https://pep8.org/) for Python code
-- Use meaningful variable and function names
-- Add comments for complex logic
-- Keep functions focused and small
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-### Commit Messages
+# Install dependencies
+pip install -r requirements.txt
 
-- Use present tense ("Add feature" not "Added feature")
-- Use imperative mood ("Move cursor to..." not "Moves cursor to...")
-- Limit first line to 72 characters
-- Reference issues: "Fix #123: Description"
-
-### Translation
-
-When adding new UI text:
-
-1. Add to `translations.py`:
-   ```python
-   'your_key': {'sr': 'Srpski tekst', 'en': 'English text'}
-   ```
-
-2. Use in code:
-   ```python
-   T.get("your_key", self.lang)
-   ```
-
-### Testing
-
-Before submitting:
-- [ ] Test all affected features
-- [ ] Test in both Serbian and English
-- [ ] Test edge cases
-- [ ] Check for errors in console
-
-## Project Structure
-
-```
-toner-inventory/
-├── toner_app_multilang.py  # Main application
-├── translations.py          # All translations
-├── create_icon.py          # Icon generator
-├── build_exe.py            # EXE builder
-├── screenshots/            # Documentation images
-└── docs/                   # Documentation files
+# Run the application
+python toner_app_multilang.py
 ```
 
-## Adding New Features
+## Code Style
 
-### Example: Adding a new dialog
+- Follow **PEP 8** Python style guide
+- Use **meaningful variable names** (Serbian or English)
+- Add **comments** for complex logic
+- Keep functions **focused and small**
+- Write **docstrings** for classes and functions
 
-1. **Create dialog class** (follow existing patterns):
-   ```python
-   class NewDialog(QDialog):
-       def __init__(self, parent=None):
-           super().__init__(parent)
-           self.lang = parent.lang if parent else 'sr'
-           self.init_ui()
-   ```
+## Testing
 
-2. **Add translations**:
-   ```python
-   'dialog_new_title': {'sr': 'Novi Dijalog', 'en': 'New Dialog'}
-   ```
+Before submitting a PR:
+- [ ] Test all basic operations (add/edit/delete)
+- [ ] Test search functionality
+- [ ] Test export/print features
+- [ ] Test on clean database
+- [ ] Check for any error messages
 
-3. **Test** both languages
+## Areas for Contribution
 
-4. **Document** in README if user-facing
-
-## Areas Open for Contribution
-
-### 🌍 **Translations**
-- Add more languages (German, French, etc.)
-- Improve existing translations
-
-### 📊 **Features**
-- Dark mode theme
-- Additional statistics/charts
-- Barcode scanning
-- Email notifications
-- Cost tracking
-
-### 🐛 **Bug Fixes**
-- Check [open issues](../../issues)
-- Fix known bugs
-
-### 📝 **Documentation**
-- Improve README
-- Add tutorials
-- Write use case examples
-
-### 🎨 **UI/UX**
-- Improve design
-- Add icons
-- Better color schemes
+We especially welcome contributions in:
+- 🌐 **Translations** - Add new languages
+- 📊 **Reports** - New export formats
+- 🎨 **UI/UX** - Design improvements
+- 🐛 **Bug Fixes** - Always appreciated!
+- 📖 **Documentation** - Improve README, add guides
 
 ## Questions?
 
-- 💬 [Start a discussion](../../discussions)
-- 📧 Open an issue
-- 🐛 Report bugs in issues
+Feel free to open an issue with the `question` label!
 
-## Code of Conduct
-
-Be respectful and constructive. We want a welcoming community for everyone.
-
----
-
-**Thank you for contributing!** 🙏
+Thank you for contributing! 🙏
